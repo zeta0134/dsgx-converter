@@ -14,10 +14,18 @@ class Writer:
         
         # todo: figure out light offsets, if we ever want to have
         # dynamic scene lights and stuff with vertex colors
-        gx.color(128, 128, 128, True) #use256 mode
+        gx.color(64, 64, 64, True) #use256 mode
         gx.polygon_attr(light0=1, light1=1)
+
+        #default material, if no other material gets specified
+        gx.dif_amb(
+            (192,192,192), #diffuse
+            (32,32,32), #ambient fanciness
+            False, #setVertexColor (not sure)
+            True # use256
+        )
         
-        self.current_material = ""
+        self.current_material = None
         
         for polytype in range(3,5):
             if (polytype == 3):
