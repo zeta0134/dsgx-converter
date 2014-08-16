@@ -9,7 +9,24 @@ class Reader:
         material_index = []
         pass
 
+    def process_clusters(self, object, mesh):
+        # each mesh should contain a single deformer, containing
+        # multiple clusters; roughly each cluster corresponds
+        # to each bone in our models.
+        if mesh.GetDeformerCount() > 0:
+            deformer = mesh.GetDeformer(0)
+            # loop over all the bones
+            for i in range(deformer.GetClusterCount()):
+                cluster = deformer.GetCluster(i)
+                print(cluster.GetLink().GetName(), ": ", cluster.GetControlPointIndicesCount())
+                # loop over every point this bone controlls
+                for j in range(cluster.GetControlPointIndicesCount()):
+                    if object.vertecies[cluster.GetControlPointIndices()[j]].bone:
+                        print("Oh no! Multiple bones affect the same vertex. Bad things!!")
+                    object.vertecies[cluster.GetControlPointIndices()[j]].bone = cluster.GetLink().GetName()
 
+
+        
 
     def process_materials(self, object, fbx_mesh):
         material_count = fbx_mesh.GetNode().GetMaterialCount()
@@ -17,9 +34,9 @@ class Reader:
         for l in range(fbx_mesh.GetLayerCount()):
             for i in range(material_count):
                 material = fbx_mesh.GetNode().GetMaterial(i)
-                print("Material: ", material.GetName())
+                #print("Material: ", material.GetName())
                 if material.GetClassId().Is(FbxSurfacePhong.ClassId):
-                    print("Is phong!")
+                    #print("Is phong!")
                     #this is a valid enough material to add, so do it!
                     object.addMaterial(material.GetName(), 
                         {"r": material.Ambient.Get()[0], 
@@ -94,6 +111,8 @@ class Reader:
                                 #todo: not discard UV coordinates here
                                 uvlist = None
                                 object.addPoly(points, uvlist, normals, mesh.GetNode().GetMaterial(material_map.GetAt(face)).GetName())
+
+                        self.process_clusters(object, mesh)
 
             return object
 

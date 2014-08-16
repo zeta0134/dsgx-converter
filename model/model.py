@@ -13,6 +13,7 @@ class Model:
                 location = euclid.Vector3(location[0], location[1], location[2])
             
             self.location = location
+            self.bone = None
             
     class Polygon:
         def __init__(self, vertex_list = None, uvlist = None, material=None,

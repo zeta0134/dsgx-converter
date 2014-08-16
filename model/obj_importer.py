@@ -160,7 +160,7 @@ class Reader:
         "vn": _vertex_normal,
         "vt": _vertex_uv,
         "f": _face,
-        "s": _smoothing_group,
+        #"s": _smoothing_group,
         "mtllib": _mtllib,
         "usemtl": _usemtl,
         # .mtl commands
