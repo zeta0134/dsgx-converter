@@ -1,7 +1,7 @@
 from __future__ import with_statement
 # import model
 from model import euclid
-from model import model
+from .model import Model
 
 class Reader:
     def __init__(self):
