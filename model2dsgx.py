@@ -14,56 +14,56 @@ from fbx import *
 import sys
 import os
 
-#process args here
-
-#debug: remove for final build
-if (len(sys.argv) < 2):
+if len(sys.argv) < 2:
     print("Usage: model2dsgx.py [file to convert]")
-    exit()
-else:
-    inputname = sys.argv[1]
+    sys.exit(1)
 
-#figure out the filename, do different stuff depending
-file_name,file_extension = os.path.splitext(inputname)
+inputname = sys.argv[1]
 
-if file_extension == ".fbx":
+# Get the extension and decide which importer to use from it.
+file_root, file_extension = os.path.splitext(inputname)
+
+def read_autodesk_fbx(filename):
     print("--Parsing FBX file--")
-
     #todo: not do all of this right here
-    piki = fbx_importer.Reader().read(inputname)
-
+    model = fbx_importer.Reader().read(inputname)
     print("Not fully implemented! PANIC!")
-    #exit()
-elif file_extension == ".obj":
+    return model
+
+def read_wavefront_obj(filename):
     print("---Parsing OBJ file---")
-    piki = obj_importer.Reader().read(inputname)
-else:
+    return obj_importer.Reader().read(inputname)
+
+readers = {
+    ".fbx": read_autodesk_fbx,
+    ".obj": read_wavefront_obj
+}
+if file_extension not in readers:
     print("Unrecognized extension: " + file_extension)
-    exit()
+    sys.exit(1)
+model_to_convert = readers[file_extension](inputname)
 
-outfilename = inputname[:inputname.rfind('.')] + '.dsgx'
+outfilename = file_root + '.dsgx'
 
-#output debug stuffs
-print("Polygons: ", len(piki.polygons))
-print("Vertecies: ", len(piki.vertecies))
+# Display information about the model.
+print("Polygons: %d" % len(model_to_convert.polygons))
+print("Vertecies: %d" % len(model_to_convert.vertecies))
 
-#polys with uv maps?
+# Count the number of texture maps in the model.
 tex = 0
-for poly in piki.polygons:
-    if (poly.uvlist != None):
+for poly in model_to_convert.polygons:
+    if poly.uvlist != None:
         tex += 1
 
-print("Textured Polygons: ", tex)
+print("Textured Polygons: %d" % tex)
 
-print("Bounding Sphere: ", piki.bounding_sphere())
-print("Bounding Box: ", piki.bounding_box())
+print("Bounding Sphere: %s" % str(model_to_convert.bounding_sphere()))
+print("Bounding Box: %s" % str(model_to_convert.bounding_box()))
 
 print("Calculating culling cost...")
-print("Worst-case Draw Cost (in polys): ", piki.max_cull_polys())
+print("Worst-case Draw Cost (in polys): %d" % model_to_convert.max_cull_polys())
 
-#attempt to output the object as a dsgx file
+# Write the .dsgx file from the in memory model.
 print("Attempting output...")
-dsgx.Writer().write(outfilename, piki)
+dsgx.Writer().write(outfilename, model_to_convert)
 print("Output Successful!")
-
-#model.dsgx.Writer().write(model.load(input.filename), output.filename)
