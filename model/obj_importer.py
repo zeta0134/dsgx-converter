@@ -1,5 +1,5 @@
 from __future__ import with_statement
-# import model
+import model
 from model import euclid
 from .model import Model
 

@@ -1,5 +1,4 @@
 from model import euclid
-#import model
 from .model import Model
 
 from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong

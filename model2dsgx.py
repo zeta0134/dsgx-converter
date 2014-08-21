@@ -5,65 +5,75 @@ Created on Thu Oct 21 00:31:54 2010
 
 @author: Nicholas Flynt, Cristián Romo
 """
-from model import obj_importer
-from model import fbx_importer
-from model import dsgx
+import os, sys
+from model import dsgx, fbx_importer, obj_importer
 
-from fbx import *
+def main(args):
+    if not valid_command_line_arguments(args):
+        error_exit(1, "Usage: %s [file to convert]" % args[0])
 
-import sys
-import os
+    input_filename = args[1]
+    output_filename = substitute_extension(input_filename, ".dsgx")
 
-#process args here
+    if not known_file_type(input_filename):
+        error_exit(1,
+            "Unrecognized file type: " + file_extension(input_filename))
 
-#debug: remove for final build
-if (len(sys.argv) < 2):
-    print("Usage: model2dsgx.py [file to convert]")
-    exit()
-else:
-    inputname = sys.argv[1]
+    model_to_convert = load_model(input_filename)
+    display_model_info(model_to_convert)
+    save_model_as_dsgx(model_to_convert, output_filename)
 
-#figure out the filename, do different stuff depending
-file_name,file_extension = os.path.splitext(inputname)
+def valid_command_line_arguments(args):
+    return len(args) == 2
 
-if file_extension == ".fbx":
+def error_exit(status_code, error_message=""):
+    if error_message:
+        print(error_message)
+    sys.exit(status_code)
+
+def substitute_extension(filename, extension):
+    return os.path.splitext(filename)[0] + extension
+
+def known_file_type(filename):
+    return file_extension(filename) in _readers
+
+def file_extension(filename):
+    return os.path.splitext(filename)[1]
+
+def load_model(filename):
+    return _readers[file_extension(filename)](filename)
+
+def display_model_info(model):
+    print("Polygons: %d" % len(model.polygons))
+    print("Vertecies: %d" % len(model.vertecies))
+
+    textured_polygons = sum(1 for polygon in model.polygons if polygon.uvlist)
+    print("Textured Polygons: %d" % textured_polygons)
+
+    print("Bounding Sphere: %s" % str(model.bounding_sphere()))
+    print("Bounding Box: %s" % str(model.bounding_box()))
+
+    print("Worst-case Draw Cost (polygons): %d" % model.max_cull_polys())
+
+def save_model_as_dsgx(model, filename):
+    print("Attempting output...")
+    dsgx.Writer().write(filename, model)
+    print("Output Successful!")
+
+def read_autodesk_fbx(filename):
     print("--Parsing FBX file--")
-
-    #todo: not do all of this right here
-    piki = fbx_importer.Reader().read(inputname)
-
+    model = fbx_importer.Reader().read(filename)
     print("Not fully implemented! PANIC!")
-    #exit()
-elif file_extension == ".obj":
+    return model
+
+def read_wavefront_obj(filename):
     print("---Parsing OBJ file---")
-    piki = obj_importer.Reader().read(inputname)
-else:
-    print("Unrecognized extension: " + file_extension)
-    exit()
+    return obj_importer.Reader().read(filename)
 
-outfilename = inputname[:inputname.rfind('.')] + '.dsgx'
+_readers = {
+    ".fbx": read_autodesk_fbx,
+    ".obj": read_wavefront_obj
+}
 
-#output debug stuffs
-print("Polygons: ", len(piki.polygons))
-print("Vertecies: ", len(piki.vertecies))
-
-#polys with uv maps?
-tex = 0
-for poly in piki.polygons:
-    if (poly.uvlist != None):
-        tex += 1
-
-print("Textured Polygons: ", tex)
-
-print("Bounding Sphere: ", piki.bounding_sphere())
-print("Bounding Box: ", piki.bounding_box())
-
-print("Calculating culling cost...")
-print("Worst-case Draw Cost (in polys): ", piki.max_cull_polys())
-
-#attempt to output the object as a dsgx file
-print("Attempting output...")
-dsgx.Writer().write(outfilename, piki)
-print("Output Successful!")
-
-#model.dsgx.Writer().write(model.load(input.filename), output.filename)
+if __name__ == '__main__':
+    main(sys.argv)

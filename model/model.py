@@ -1,4 +1,4 @@
-from model import euclid
+from . import euclid
 
 class Model:
     def __init__(self):
