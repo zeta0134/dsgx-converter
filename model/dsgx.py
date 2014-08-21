@@ -36,7 +36,7 @@ class Writer:
             for group in model.groups:
                 print("Group: ", group)
                 gx.push()
-                gx.mtx_mult_4x4(model.animations["Armature|Run"].getTransform(group, 0))
+                gx.mtx_mult_4x4(model.animations["Armature|Run"].getTransform(group, 3))
                 for face in model.polygons:
                     if face.vertexGroup() == group and not face.isMixed():
                         if len(face.vertecies) == polytype:
@@ -121,7 +121,7 @@ class Emitter:
             # pad the command with 0's for unpacked mode
             
             out += struct.pack("<BBBB", cmd['instruction'], 0,0,0)
-            print(hex(cmd['instruction']))
+            #print(hex(cmd['instruction']))
             for param in cmd['params']:
                 out += struct.pack("<i", param)
                 

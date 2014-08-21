@@ -1,12 +1,21 @@
 from model import euclid
 from .model import Model
 
-from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime
+from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime, FbxAMatrix
+
+def fbx_to_euclid(input_matrix):
+    return euclid.Matrix4.new(
+        input_matrix.Get(0,0),input_matrix.Get(1,0),input_matrix.Get(2,0),input_matrix.Get(3,0),
+        input_matrix.Get(0,1),input_matrix.Get(1,1),input_matrix.Get(2,1),input_matrix.Get(3,1),
+        input_matrix.Get(0,2),input_matrix.Get(1,2),input_matrix.Get(2,2),input_matrix.Get(3,2),
+        input_matrix.Get(0,3),input_matrix.Get(1,3),input_matrix.Get(2,3),input_matrix.Get(3,3)
+        )
 
 class Reader:
     def __init__(self):
         self.material_index = []
         self.bones = {}
+        self.cluster_transforms = {}
         pass
 
     def process_clusters(self, object, mesh):
@@ -18,6 +27,13 @@ class Reader:
             # loop over all the bones
             for i in range(deformer.GetClusterCount()):
                 cluster = deformer.GetCluster(i)
+
+                print(sorted(dir(cluster)))
+                bind_matrix = FbxAMatrix()
+                cluster.GetTransformLinkMatrix(bind_matrix) #if this even works
+                self.cluster_transforms[cluster.GetLink().GetName()] = fbx_to_euclid(bind_matrix)
+                print("STUFF: ", cluster.GetLink().GetName())
+
                 print(cluster.GetLink().GetName(), ": ", cluster.GetControlPointIndicesCount())
                 # loop over every point this bone controlls
                 for j in range(cluster.GetControlPointIndicesCount()):
@@ -120,17 +136,12 @@ class Reader:
     def calculate_transformation(self, bone, frame):
         timestamp = FbxTime()
         timestamp.SetFrame(frame)
-        #print("\n".join(sorted(dir(bone.GetNode()))))
         transform = bone.GetNode().EvaluateGlobalTransform(timestamp)
+
 
         #turn this transform into a euclid format, for our sanity
         #TODO: make this not suck maybe?
-        final_transform = euclid.Matrix4.new(
-            transform.Get(0,0),transform.Get(1,0),transform.Get(2,0),transform.Get(3,0),
-            transform.Get(0,1),transform.Get(1,1),transform.Get(2,1),transform.Get(3,1),
-            transform.Get(0,2),transform.Get(1,2),transform.Get(2,2),transform.Get(3,2),
-            transform.Get(0,3),transform.Get(1,3),transform.Get(2,3),transform.Get(3,3)
-            )
+        final_transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() * fbx_to_euclid(transform)
 
         #print(final_transform)
 
