@@ -21,9 +21,9 @@ class Reader:
                 print(cluster.GetLink().GetName(), ": ", cluster.GetControlPointIndicesCount())
                 # loop over every point this bone controlls
                 for j in range(cluster.GetControlPointIndicesCount()):
-                    if object.vertecies[cluster.GetControlPointIndices()[j]].bone:
+                    if object.vertecies[cluster.GetControlPointIndices()[j]].group != "default":
                         print("Oh no! Multiple bones affect the same vertex. Bad things!!")
-                    object.vertecies[cluster.GetControlPointIndices()[j]].bone = cluster.GetLink().GetName()
+                    object.vertecies[cluster.GetControlPointIndices()[j]].setGroup(cluster.GetLink().GetName())
 
     def process_materials(self, object, fbx_mesh):
         material_count = fbx_mesh.GetNode().GetMaterialCount()

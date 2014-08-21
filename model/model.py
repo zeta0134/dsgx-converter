@@ -6,19 +6,26 @@ class Model:
         self.materials = {}
         self.vertecies = []
         self.animations = {}
+        self.groups = []
         
     class Vertex:
-        def __init__(self, location=euclid.Vector3(0.0, 0.0, 0.0)):
+        def __init__(self, location=euclid.Vector3(0.0, 0.0, 0.0), model=None):
             # if a list or a tuple is passed in, convert it to a Vector3
             if type(location).__name__=='list' or type(location).__name__=='tuple':
                 location = euclid.Vector3(location[0], location[1], location[2])
             
             self.location = location
-            self.bone = None
+            self.model = model
+            self.group = "default"
+
+        def setGroup(self, group):
+            if group not in self.model.groups:
+                self.model.groups.append(group)
+            self.group = group
             
     class Polygon:
         def __init__(self, vertex_list = None, uvlist = None, material=None,
-                     face_normal=None, vertex_normals=None):
+                     face_normal=None, vertex_normals=None, model=None):
             if vertex_list is None:
                 self.vertecies = []
             else:
@@ -27,6 +34,18 @@ class Model:
             self.uvlist = uvlist
             self.face_normal = face_normal
             self.vertex_normals = vertex_normals
+            self.model = model
+
+        def vertexGroup(self):
+            return self.model.vertecies[self.vertecies[0]].group
+
+        def isMixed(self):
+            orig = self.model.vertecies[self.vertecies[0]].group
+            for v in self.vertecies:
+                if orig != self.model.vertecies[v].group:
+                    return True
+            return False
+
     
     class Material:
         def __init__(self):
@@ -42,13 +61,16 @@ class Model:
             self.length = 0 #in frames
         
         def addNode(self, node_name, transform_list):
+            node_name = "Armature|"+node_name
+            print("Added animation node: ", node_name)
             self.nodes[node_name] = transform_list
 
-        def getTransform(node_name, frame):
-            return nodes[node_name][frame]
+        def getTransform(self, node_name, frame):
+            return self.nodes[node_name][frame]
 
     def createAnimation(self, name):
         self.animations[name] = self.Animation()
+
         return self.animations[name]
 
     def getAnimation(self, name):
@@ -63,13 +85,13 @@ class Model:
         self.materials[name] = newmtl
 
     def addVertex(self, location=euclid.Vector3(0.0, 0.0, 0.0)):
-        self.vertecies.append(self.Vertex(location))
+        self.vertecies.append(self.Vertex(location, self))
 
     def addPoly(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None):
         # todo: use a material instead of a shading flag
         face_normal = self.face_normal(vertex_list)
         self.polygons.append(self.Polygon(vertex_list, uvlist, material,
-                             face_normal, vertex_normals))
+                             face_normal, vertex_normals, self))
             
 
     def max_cull_polys(self):
