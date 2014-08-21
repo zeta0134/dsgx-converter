@@ -5,6 +5,7 @@ class Model:
         self.polygons = []
         self.materials = {}
         self.vertecies = []
+        self.animations = {}
         
     class Vertex:
         def __init__(self, location=euclid.Vector3(0.0, 0.0, 0.0)):
@@ -34,6 +35,24 @@ class Model:
             self.diffuse = (128, 128, 128)
             self.specular = (255, 255, 255)
             self.smooth_shading = False
+
+    class Animation:
+        def __init__(self):
+            self.nodes = {}
+            self.length = 0 #in frames
+        
+        def addNode(self, node_name, transform_list):
+            self.nodes[node_name] = transform_list
+
+        def getTransform(node_name, frame):
+            return nodes[node_name][frame]
+
+    def createAnimation(self, name):
+        self.animations[name] = self.Animation()
+        return self.animations[name]
+
+    def getAnimation(self, name):
+        return self.animations[name]
     
     def addMaterial(self, name, ambient, specular, diffuse, texture=None):
         newmtl = self.Material()

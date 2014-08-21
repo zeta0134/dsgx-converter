@@ -1,11 +1,12 @@
 from model import euclid
 from .model import Model
 
-from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong
+from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime
 
 class Reader:
     def __init__(self):
-        material_index = []
+        self.material_index = []
+        self.bones = {}
         pass
 
     def process_clusters(self, object, mesh):
@@ -23,10 +24,6 @@ class Reader:
                     if object.vertecies[cluster.GetControlPointIndices()[j]].bone:
                         print("Oh no! Multiple bones affect the same vertex. Bad things!!")
                     object.vertecies[cluster.GetControlPointIndices()[j]].bone = cluster.GetLink().GetName()
-
-
-    def process_animation(self, object, animation_stack):
-        return
 
     def process_materials(self, object, fbx_mesh):
         material_count = fbx_mesh.GetNode().GetMaterialCount()
@@ -99,7 +96,8 @@ class Reader:
 
     def process_skeleton(self, object, skeleton):
         #TODO: This obviously.
-        print("SKELETON encountered! Not implemented yet.")
+        print("SKELETON encountered!")
+        self.bones[skeleton.GetName()] = skeleton
         return
 
     def process_node(self, object, node):
@@ -119,6 +117,49 @@ class Reader:
             print("recursing into: ", node.GetName())
             self.process_node(object, node.GetChild(i))
 
+    def calculate_transformation(self, bone, frame):
+        timestamp = FbxTime()
+        timestamp.SetFrame(frame)
+        #print("\n".join(sorted(dir(bone.GetNode()))))
+        transform = bone.GetNode().EvaluateGlobalTransform(timestamp)
+
+        #turn this transform into a euclid format, for our sanity
+        #TODO: make this not suck maybe?
+        final_transform = euclid.Matrix4.new(
+            transform.Get(0,0),transform.Get(1,0),transform.Get(2,0),transform.Get(3,0),
+            transform.Get(0,1),transform.Get(1,1),transform.Get(2,1),transform.Get(3,1),
+            transform.Get(0,2),transform.Get(1,2),transform.Get(2,2),transform.Get(3,2),
+            transform.Get(0,3),transform.Get(1,3),transform.Get(2,3),transform.Get(3,3)
+            )
+
+        #print(final_transform)
+
+        return final_transform
+
+    def process_animation(self, object, scene):
+        #print(sorted(dir(scene)))
+        #evaluator = scene.GetAnimationEvaluator()
+        #print(sorted(dir(evaluator)))
+
+        for i in range(scene.GetSrcObjectCount(FbxAnimStack.ClassId)):
+            animation_stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
+            print("Animation: ", animation_stack.GetName())
+            print("Length: ", animation_stack.LocalStop.Get().GetFrameCount())
+
+            #evaluator.SetContext(animation_stack)
+            scene.SetCurrentAnimationStack(animation_stack)
+            obj_animation = object.createAnimation(animation_stack.GetName())
+            obj_animation.length = animation_stack.LocalStop.Get().GetFrameCount()
+
+            #initialize our list of animation stuffs
+            for k in self.bones:
+                transform_list = []
+                for frame in range(obj_animation.length):
+                    transform_list.append(self.calculate_transformation(self.bones[k], frame))
+
+                obj_animation.addNode(self.bones[k].GetName(), transform_list)
+
+
     def read(self, filename):
         #first, make sure we can open the file
         SdkManager, scene = InitializeSdkObjects()
@@ -132,6 +173,9 @@ class Reader:
             node_list = scene.GetRootNode()
             for i in range(node_list.GetChildCount()):
                 self.process_node(object, node_list.GetChild(i))
+
+            #animation is handled separately for some weird reason
+            self.process_animation(object, scene)
 
             return object
 
