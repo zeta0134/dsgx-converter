@@ -28,7 +28,6 @@ class Reader:
             for i in range(deformer.GetClusterCount()):
                 cluster = deformer.GetCluster(i)
 
-                print(sorted(dir(cluster)))
                 bind_matrix = FbxAMatrix()
                 cluster.GetTransformLinkMatrix(bind_matrix) #if this even works
                 self.cluster_transforms[cluster.GetLink().GetName()] = fbx_to_euclid(bind_matrix)
@@ -133,19 +132,22 @@ class Reader:
             print("recursing into: ", node.GetName())
             self.process_node(object, node.GetChild(i))
 
-    def calculate_transformation(self, bone, frame):
+    def calculate_transformation(self, bone, frame, last_step=True):
         timestamp = FbxTime()
         timestamp.SetFrame(frame)
+        #transform = bone.GetNode().EvaluateLocalTransform(timestamp)
         transform = bone.GetNode().EvaluateGlobalTransform(timestamp)
 
+        #make this euclid format please
+        transform = fbx_to_euclid(transform)
 
-        #turn this transform into a euclid format, for our sanity
-        #TODO: make this not suck maybe?
-        final_transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() * fbx_to_euclid(transform)
+        #print("\n".join(sorted(dir(bone.GetNode()))))
+        #exit()
 
-        #print(final_transform)
-
-        return final_transform
+        #transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() # * transform
+        #transform = transform.identity()
+        return euclid.Matrix4()
+        #return self.cluster_transforms[bone.GetNode().GetName()].inverse()
 
     def process_animation(self, object, scene):
         #print(sorted(dir(scene)))
