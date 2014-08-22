@@ -1,4 +1,4 @@
-from model import euclid
+import euclid3 as euclid
 from .model import Model
 
 from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime, FbxAMatrix

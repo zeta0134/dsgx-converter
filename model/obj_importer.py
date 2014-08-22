@@ -1,6 +1,6 @@
 from __future__ import with_statement
 import model
-from model import euclid
+import euclid3 as euclid
 from .model import Model
 
 class Reader:
