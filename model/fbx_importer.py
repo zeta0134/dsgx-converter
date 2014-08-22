@@ -146,8 +146,8 @@ class Reader:
 
         #transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() # * transform
         #transform = transform.identity()
-        return euclid.Matrix4()
-        #return self.cluster_transforms[bone.GetNode().GetName()].inverse()
+        #return euclid.Matrix4()
+        return self.cluster_transforms[bone.GetNode().GetName()].inverse()
 
     def process_animation(self, object, scene):
         #print(sorted(dir(scene)))
