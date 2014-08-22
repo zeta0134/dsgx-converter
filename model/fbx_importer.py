@@ -8,8 +8,9 @@ def fbx_to_euclid(input_matrix):
         input_matrix.Get(0,0),input_matrix.Get(1,0),input_matrix.Get(2,0),input_matrix.Get(3,0),
         input_matrix.Get(0,1),input_matrix.Get(1,1),input_matrix.Get(2,1),input_matrix.Get(3,1),
         input_matrix.Get(0,2),input_matrix.Get(1,2),input_matrix.Get(2,2),input_matrix.Get(3,2),
-        input_matrix.Get(0,3),input_matrix.Get(1,3),input_matrix.Get(2,3),input_matrix.Get(3,3)
-        )
+        input_matrix.Get(0,3),input_matrix.Get(1,3),input_matrix.Get(2,3),input_matrix.Get(3,3))
+
+
 
 class Reader:
     def __init__(self):
@@ -25,13 +26,15 @@ class Reader:
         if mesh.GetDeformerCount() > 0:
             deformer = mesh.GetDeformer(0)
             # loop over all the bones
+
             for i in range(deformer.GetClusterCount()):
                 cluster = deformer.GetCluster(i)
 
                 bind_matrix = FbxAMatrix()
                 cluster.GetTransformLinkMatrix(bind_matrix) #if this even works
                 self.cluster_transforms[cluster.GetLink().GetName()] = fbx_to_euclid(bind_matrix)
-                print("STUFF: ", cluster.GetLink().GetName())
+                print("Cluster: ", cluster.GetLink().GetName())
+                print(self.cluster_transforms[cluster.GetLink().GetName()].inverse())
 
                 print(cluster.GetLink().GetName(), ": ", cluster.GetControlPointIndicesCount())
                 # loop over every point this bone controlls
@@ -81,6 +84,11 @@ class Reader:
         #do something about materials
         self.process_materials(object, mesh)
         material_map = mesh.GetLayer(0).GetMaterials().GetIndexArray()
+
+        print(fbx_to_euclid(mesh.GetNode().EvaluateGlobalTransform()))
+        #exit()
+        #well ... that explains a lot.
+        self.mesh_global = fbx_to_euclid(mesh.GetNode().EvaluateGlobalTransform())
 
         for face in range(mesh.GetPolygonCount()):
             #this importer only supports triangles and
@@ -141,13 +149,21 @@ class Reader:
         #make this euclid format please
         transform = fbx_to_euclid(transform)
 
-        #print("\n".join(sorted(dir(bone.GetNode()))))
+        bind_pose = self.cluster_transforms[bone.GetNode().GetName()]
+
+        #print("\n".join(sorted(dir(bone.GetNode().GetScene().GetRootNode()))))
         #exit()
 
-        #transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() # * transform
+        #transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() * transform
         #transform = transform.identity()
         #return euclid.Matrix4()
-        return self.cluster_transforms[bone.GetNode().GetName()].inverse()
+        
+        #print(bone.GetNode().GetName())
+        #return self.mesh_global.inverse() * bind_pose.inverse() * transform.identity() * self.mesh_global
+        return bind_pose.identity()
+        #return self.mesh_global * transform * bind_pose.inverse() * self.mesh_global.inverse()
+
+        #return transform.inverse()
 
     def process_animation(self, object, scene):
         #print(sorted(dir(scene)))

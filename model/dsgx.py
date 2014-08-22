@@ -36,7 +36,7 @@ class Writer:
             for group in model.groups:
                 print("Group: ", group)
                 gx.push()
-                gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 3))
+                gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 0))
                 for face in model.polygons:
                     if face.vertexGroup() == group and not face.isMixed():
                         if len(face.vertecies) == polytype:
@@ -89,7 +89,8 @@ class Writer:
         out = bytes()
         sphere = model.bounding_sphere()
         print(sphere[0].x)
-        out += struct.pack("<ffff", sphere[0].x / 4.0, sphere[0].y / 4.0, sphere[0].z / 4.0, sphere[1] / 4.0)
+        #out += struct.pack("<ffff", sphere[0].x / 4.0, sphere[0].y / 4.0, sphere[0].z / 4.0, sphere[1] / 4.0)
+        out += struct.pack("<ffff", sphere[0].x, sphere[0].y, sphere[0].z, sphere[1])
         #then, the cull-cost for the object
         out += struct.pack("<I", model.max_cull_polys())
         print(len(out))
@@ -123,7 +124,9 @@ class Emitter:
             out += struct.pack("<BBBB", cmd['instruction'], 0,0,0)
             #print(hex(cmd['instruction']))
             for param in cmd['params']:
-                out += struct.pack("<i", param)
+                #print(param)
+                #out += struct.pack("<i", param)
+                out += param
                 
         # ok. Last thing, we need the size of the finished
         # command list, for glCallList to use.
@@ -140,7 +143,7 @@ class Emitter:
     vtxs_triangle_strip = 2
     vtxs_quadstrip = 3    
     def begin_vtxs(self, format):
-        self.command(0x40, [format & 0x3])
+        self.command(0x40, [struct.pack("<I",format & 0x3)])
         
     def end_vtxs(self):
         pass #dummy command, real hardware does nothing, no point in outputting
@@ -155,14 +158,15 @@ class Emitter:
         # results.
         
         # cheat
-        x = x/4
-        y = y/4
-        z = z/4
+        #x = x/4
+        #y = y/4
+        #z = z/4
         
         self.command(0x23, [
+            struct.pack("<I",
             (int(x * 2**12) & 0xFFFF) |
-            ((int(y * 2**12) & 0xFFFF) << 16),
-            (int(z * 2**12) & 0xFFFF)
+            ((int(y * 2**12) & 0xFFFF) << 16)),
+            struct.pack("<I",(int(z * 2**12) & 0xFFFF))
         ])
     
     polygon_mode_modulation = 0
@@ -200,7 +204,7 @@ class Emitter:
             ((polygon_id & 0x3F) << 24))
         
         self.command(0x29, [
-            attr
+            struct.pack("<I",attr)
         ])
         
     def color(self, red, green, blue, use256=False):
@@ -210,16 +214,18 @@ class Emitter:
             blue = int(blue/8)
             green = int(green/8)
         self.command(0x20, [
+            struct.pack("<I",
             (red & 0x1F) + 
             ((green & 0x1F) << 5) + 
-            ((blue & 0x1F) << 10)
+            ((blue & 0x1F) << 10))
         ])
     
     def normal(self, x, y, z):
         self.command(0x21, [
+            struct.pack("<I",
             (int((x*0.95) * 2**9) & 0x3FF) + 
             ((int((y*0.95) * 2**9) & 0x3FF) << 10) + 
-            ((int((z*0.95) * 2**9) & 0x3FF) << 20) 
+            ((int((z*0.95) * 2**9) & 0x3FF) << 20))
         ])
         
     def dif_amb(self, diffuse, ambient, setvertex=False, use256=False):
@@ -236,27 +242,28 @@ class Emitter:
                 int(ambient[2]/8),
             )
         self.command(0x30, [
+            struct.pack("<I",
             (diffuse[0] & 0x1F) + 
             ((diffuse[1] & 0x1F) << 5) + 
             ((diffuse[2] & 0x1F) << 10) + 
             ((setvertex & 0x1) << 15) +
             ((ambient[0] & 0x1F) << 16) + 
             ((ambient[1] & 0x1F) << 21) + 
-            ((ambient[2] & 0x1F) << 26) 
+            ((ambient[2] & 0x1F) << 26))
         ])
 
     def push(self):
         self.command(0x11)
 
     def pop(self):
-        self.command(0x12, [0x1])
+        self.command(0x12, [struct.pack("<I",0x1)])
 
     #note: expects a euclid.py matrix, any other format will not work
     def mtx_mult_4x4(self, matrix):
         self.command(0x18, [
-                toFixed(matrix.a), toFixed(matrix.b), toFixed(matrix.c), toFixed(matrix.d), 
-                toFixed(matrix.e), toFixed(matrix.f), toFixed(matrix.g), toFixed(matrix.h), 
-                toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l), 
-                toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p)
+                struct.pack("<i",toFixed(matrix.a)), struct.pack("<i",toFixed(matrix.b)), struct.pack("<i",toFixed(matrix.c)), struct.pack("<i",toFixed(matrix.d)), 
+                struct.pack("<i",toFixed(matrix.e)), struct.pack("<i",toFixed(matrix.f)), struct.pack("<i",toFixed(matrix.g)), struct.pack("<i",toFixed(matrix.h)), 
+                struct.pack("<i",toFixed(matrix.i)), struct.pack("<i",toFixed(matrix.j)), struct.pack("<i",toFixed(matrix.k)), struct.pack("<i",toFixed(matrix.l)), 
+                struct.pack("<i",toFixed(matrix.m)), struct.pack("<i",toFixed(matrix.n)), struct.pack("<i",toFixed(matrix.o)), struct.pack("<i",toFixed(matrix.p))
             ])
 
