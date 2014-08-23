@@ -30,11 +30,14 @@ class Reader:
             for i in range(deformer.GetClusterCount()):
                 cluster = deformer.GetCluster(i)
 
-                bind_matrix = FbxAMatrix()
-                cluster.GetTransformLinkMatrix(bind_matrix) #if this even works
-                self.cluster_transforms[cluster.GetLink().GetName()] = fbx_to_euclid(bind_matrix)
+                transform_link_matrix = FbxAMatrix()
+                transform_matrix = FbxAMatrix()
+                cluster.GetTransformLinkMatrix(transform_link_matrix) #if this even works
+                cluster.GetTransformMatrix(transform_matrix) #if this even works
+                self.cluster_transforms[cluster.GetLink().GetName()] = fbx_to_euclid(transform_matrix) * fbx_to_euclid(transform_link_matrix).inverse()
                 print("Cluster: ", cluster.GetLink().GetName())
-                print(self.cluster_transforms[cluster.GetLink().GetName()].inverse())
+                #print(self.cluster_transforms[cluster.GetLink().GetName()])
+                #print(fbx_to_euclid(transform_matrix))
 
                 print(cluster.GetLink().GetName(), ": ", cluster.GetControlPointIndicesCount())
                 # loop over every point this bone controlls
@@ -143,27 +146,27 @@ class Reader:
     def calculate_transformation(self, bone, frame, last_step=True):
         timestamp = FbxTime()
         timestamp.SetFrame(frame)
-        #transform = bone.GetNode().EvaluateLocalTransform(timestamp)
-        transform = bone.GetNode().EvaluateGlobalTransform(timestamp)
+        #animation_transform = bone.GetNode().EvaluateLocalTransform(timestamp)
+        animation_transform = bone.GetNode().EvaluateGlobalTransform(timestamp)
 
         #make this euclid format please
-        transform = fbx_to_euclid(transform)
+        animation_transform = fbx_to_euclid(animation_transform)
 
-        bind_pose = self.cluster_transforms[bone.GetNode().GetName()]
+        bind_pose_inverse = self.cluster_transforms[bone.GetNode().GetName()]
 
         #print("\n".join(sorted(dir(bone.GetNode().GetScene().GetRootNode()))))
         #exit()
 
-        #transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() * transform
-        #transform = transform.identity()
+        #animation_transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() * animation_transform
+        #animation_transform = animation_transform.identity()
         #return euclid.Matrix4()
         
         #print(bone.GetNode().GetName())
-        #return self.mesh_global.inverse() * bind_pose.inverse() * transform.identity() * self.mesh_global
-        return bind_pose.identity()
-        #return self.mesh_global * transform * bind_pose.inverse() * self.mesh_global.inverse()
+        return bind_pose_inverse * animation_transform
+        
+        #return self.mesh_global * animation_transform * bind_pose.inverse() * self.mesh_global.inverse()
 
-        #return transform.inverse()
+        #return animation_transform.inverse()
 
     def process_animation(self, object, scene):
         #print(sorted(dir(scene)))

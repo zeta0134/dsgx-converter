@@ -5,6 +5,51 @@ import struct # , model
 # of animations and their offsets to adjust the base for
 # deformation.
 class Writer:        
+
+    def face_attributes(self, gx, face, model):
+        if face.material != self.current_material:
+            gx.dif_amb(
+                (
+                    model.materials[face.material].diffuse[0] * 255,
+                    model.materials[face.material].diffuse[1] * 255,
+                    model.materials[face.material].diffuse[2] * 255), #diffuse
+                (
+                    model.materials[face.material].ambient[0] *  model.materials[face.material].diffuse[0] * 255,
+                    model.materials[face.material].ambient[1] *  model.materials[face.material].diffuse[1] * 255,
+                    model.materials[face.material].ambient[2] *  model.materials[face.material].diffuse[2] * 255), #ambient fanciness
+                False, #setVertexColor (not sure)
+                True # use256
+            )
+            self.current_material = face.material
+            print("Switching to mtl: " + face.material)
+        shading = "smooth"
+        if shading == "flat":
+            # handle color
+            gx.normal(
+                face.face_normal[0],
+                face.face_normal[1],
+                face.face_normal[2],
+            )
+
+    def output_vertex(self, gx, point, model):
+        # point normal
+        p_normal = model.point_normal(point)
+        if p_normal == None:
+            print("Problem: no normal for this point!", face.vertecies)
+        else:
+            gx.normal(
+                p_normal[0],
+                p_normal[1],
+                p_normal[2],
+            )
+        # location
+        gx.vtx_16(
+            model.vertecies[point].location.x,
+            model.vertecies[point].location.y,
+            model.vertecies[point].location.z
+        )
+
+
     def write(self, filename, model):
         gx = Emitter()
         
@@ -33,55 +78,18 @@ class Writer:
             if (polytype == 4):
                 gx.begin_vtxs(gx.vtxs_quad)
 
+            #process faces that all belong to one vertex group (simple case)
             for group in model.groups:
                 print("Group: ", group)
                 gx.push()
-                gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 0))
+                gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
                 for face in model.polygons:
                     if face.vertexGroup() == group and not face.isMixed():
                         if len(face.vertecies) == polytype:
-                            if face.material != self.current_material:
-                                gx.dif_amb(
-                                    (
-                                        model.materials[face.material].diffuse[0] * 255,
-                                        model.materials[face.material].diffuse[1] * 255,
-                                        model.materials[face.material].diffuse[2] * 255), #diffuse
-                                    (
-                                        model.materials[face.material].ambient[0] *  model.materials[face.material].diffuse[0] * 255,
-                                        model.materials[face.material].ambient[1] *  model.materials[face.material].diffuse[1] * 255,
-                                        model.materials[face.material].ambient[2] *  model.materials[face.material].diffuse[2] * 255), #ambient fanciness
-                                    False, #setVertexColor (not sure)
-                                    True # use256
-                                )
-                                self.current_material = face.material
-                                print("Switching to mtl: " + face.material)
-                            shading = "smooth"
-                            if shading == "flat":
-                                # handle color
-                                gx.normal(
-                                    face.face_normal[0],
-                                    face.face_normal[1],
-                                    face.face_normal[2],
-                                )
+                            self.face_attributes(gx, face, model)
                             for point in face.vertecies:
-                                # point normal
-                                if shading == "smooth":
-                                    p_normal = model.point_normal(point)
-                                    if p_normal == None:
-                                        print("Problem: no normal for this point!", face.vertecies)
-                                    else:
-                                        #handle color
-                                        gx.normal(
-                                            p_normal[0],
-                                            p_normal[1],
-                                            p_normal[2],
-                                        )
-                                # location
-                                gx.vtx_16(
-                                    model.vertecies[point].location.x,
-                                    model.vertecies[point].location.y,
-                                    model.vertecies[point].location.z
-                                )
+                                self.output_vertex(gx, point, model)
+
                 gx.pop()
         
         fp = open(filename, "wb")
