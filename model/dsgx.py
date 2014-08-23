@@ -91,6 +91,18 @@ class Writer:
                                 self.output_vertex(gx, point, model)
 
                 gx.pop()
+
+            #now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
+            for face in model.polygons:
+                if len(face.vertecies) == polytype:
+                    if face.isMixed():
+                        self.face_attributes(gx, face, model)
+                        for point in face.vertecies:
+                            gx.push()
+                            gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
+                            self.output_vertex(gx, point, model)
+                            gx.pop()
+
         
         fp = open(filename, "wb")
         #first, output the bounding sphere. (todo: make a real header!!)
