@@ -17,18 +17,19 @@ class Writer:
         #write the name as a non-null terminated 4-byte sequence
         fp.write(struct.pack("<cccc", name[0].encode('ascii'), name[1].encode('ascii'), name[2].encode('ascii'), name[3].encode('ascii')))
 
-        #write out the length of data, in bytes.
+        #write out the length of data, in WORDS. (4-bytes per word)
         length = len(data)
         if length % 4 != 0:
             padding = 4 - (length % 4)
             length = length + padding
             for i in range(padding):
-                data = data + struct.pack("<c", 0)
-        fp.write(struct.pack("<I", length))
+                data = data + struct.pack("<x")
+        fp.write(struct.pack("<I", int(length / 4)))
 
         #finally, write out the data itself
         fp.write(data)
         print("Wrote chunk: ", name)
+        print("Length: ", int(length / 4))
 
     def dsgx_string(self, str):
         #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
@@ -36,12 +37,12 @@ class Writer:
         #padded with 0 bytes in the output.
         output = bytes()
         for i in range(31):
-            if i > len(str):
-                output += struct.pack("<c",0)
+            if i >= len(str):
+                output += struct.pack("<x")
             else:
                 output += struct.pack("<c",str[i].encode('ascii'))
         #force null terminattion
-        output += struct.pack("<c",0)
+        output += struct.pack("<x")
 
         return output
 
@@ -110,6 +111,8 @@ class Writer:
         )
         
         self.current_material = None
+
+        group_offsets = {}
         
         for polytype in range(3,5):
             if (polytype == 3):
@@ -121,6 +124,12 @@ class Writer:
             for group in model.groups:
                 print("Group: ", group)
                 gx.push()
+
+                #store this transformation offset for later
+                if not group in group_offsets:
+                    group_offsets[group] = []
+                group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+
                 gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
                 for face in model.polygons:
                     if face.vertexGroup() == group and not face.isMixed():
@@ -138,6 +147,13 @@ class Writer:
                         self.face_attributes(gx, face, model)
                         for point in face.vertecies:
                             gx.push()
+
+                            #store this transformation offset for later
+                            group = model.vertecies[point].group
+                            if not group in group_offsets:
+                                group_offsets[group] = []
+                            group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+
                             gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
                             self.output_vertex(gx, point, model)
                             gx.pop()
@@ -156,8 +172,42 @@ class Writer:
         #output the cull-cost for the object
         self.write_chunk(fp, "COST", struct.pack("<I", model.max_cull_polys()))
 
-        #animation bones and data go here:
-        #TODO: THIS
+        #matrix offsets for each bone
+        bone = bytes()
+        bone += struct.pack("<I", len(group_offsets)) #number of bones in the file
+        for group in sorted(group_offsets):
+            bone += self.dsgx_string(group) #name of this bone
+            bone += struct.pack("<I", len(group_offsets[group])) #number of copies of this matrix in the dsgx file
+
+            #debug
+            print("Writing bone data for:  ", group)
+            print("Number of offsets: ", len(group_offsets[group]))
+
+            for offset in group_offsets[group]:
+                bone += struct.pack("<I", offset)
+                #print(offset, " ", end="")
+            #print("")
+        self.write_chunk(fp, "BONE", bone)
+
+        #animation data!
+        bani = bytes()
+        for animation in model.animations:
+            bani += self.dsgx_string(animation)
+            bani += struct.pack("<I", model.animations[animation].length)
+            print("Writing animation data: ", animation)
+            print("Length in frames: ", model.animations[animation].length)
+            #here, we output bone data per frame of the animation, making
+            #sure to use the same bone order as the BONE chunk
+            for frame in range(model.animations[animation].length):
+                for group in sorted(group_offsets):
+                    matrix = model.animations[animation].getTransform(group, frame)
+                    #hoo boy
+                    bani += struct.pack("<iiii", toFixed(matrix.a), toFixed(matrix.b), toFixed(matrix.c), toFixed(matrix.d))
+                    bani += struct.pack("<iiii", toFixed(matrix.e), toFixed(matrix.f), toFixed(matrix.g), toFixed(matrix.h))
+                    bani += struct.pack("<iiii", toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l))
+                    bani += struct.pack("<iiii", toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p))
+
+        self.write_chunk(fp, "BANI", bani)
         
         fp.close()
 
