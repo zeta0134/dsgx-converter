@@ -150,7 +150,7 @@ class Writer:
         #then, output the bounding sphere data (needed for multipass stuffs)
         bsph = bytes()
         sphere = model.bounding_sphere()
-        bsph += struct.pack("<ffff", sphere[1], sphere[0].x, sphere[0].y, sphere[0].z)
+        bsph += struct.pack("<ffff", toFixed(sphere[1]), toFixed(sphere[0].x), toFixed(sphere[0].y), toFixed(sphere[0].z))
         self.write_chunk(fp, "BSPH", bsph)
 
         #output the cull-cost for the object
