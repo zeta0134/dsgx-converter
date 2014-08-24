@@ -4,6 +4,10 @@ import struct # , model
 # for direct DMA into the NDS GX engine, and a listing
 # of animations and their offsets to adjust the base for
 # deformation.
+
+def toFixed(float_value, fraction=12):
+        return int(float_value * pow(2,fraction))
+
 class Writer:        
     def write_chunk(self, fp, name, data):
         if len(name) != 4:
@@ -11,7 +15,7 @@ class Writer:
             return
 
         #write the name as a non-null terminated 4-byte sequence
-        fp.write(struct.pack("<cccc", name[0], name[1], name[2], name[3]))
+        fp.write(struct.pack("<cccc", name[0].encode('ascii'), name[1].encode('ascii'), name[2].encode('ascii'), name[3].encode('ascii')))
 
         #write out the length of data, in bytes.
         length = len(data)
@@ -29,15 +33,15 @@ class Writer:
         #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
         #this means that any longer strings need to be truncated, and any shorter strings need to be
         #padded with 0 bytes in the output.
-        output = ""
+        output = bytes()
         for i in range(31):
             if i > len(str):
                 output += struct.pack("<c",0)
             else:
-                output += struct.pack("<c",str[i])
+                output += struct.pack("<c",str[i].encode('ascii'))
         #force null terminattion
         output += struct.pack("<c",0)
-        
+
         return output
 
     def face_attributes(self, gx, face, model):
@@ -139,22 +143,22 @@ class Writer:
 
         
         fp = open(filename, "wb")
-        #first, output the bounding sphere. (todo: make a real header!!)
-        out = bytes()
+        #first things first, output the main data
+        self.write_chunk(fp, "DSGX", gx.write())
+
+        #then, output the bounding sphere data (needed for multipass stuffs)
+        bsph = bytes()
         sphere = model.bounding_sphere()
-        print(sphere[0].x)
-        #out += struct.pack("<ffff", sphere[0].x / 4.0, sphere[0].y / 4.0, sphere[0].z / 4.0, sphere[1] / 4.0)
-        out += struct.pack("<ffff", sphere[0].x, sphere[0].y, sphere[0].z, sphere[1])
-        #then, the cull-cost for the object
-        out += struct.pack("<I", model.max_cull_polys())
-        print(len(out))
-        fp.write(out)
-        fp.write(gx.write(filename))
+        bsph += struct.pack("<ffff", sphere[1], sphere[0].x, sphere[0].y, sphere[0].z)
+        self.write_chunk(fp, "BSPH", bsph)
+
+        #output the cull-cost for the object
+        self.write_chunk(fp, "COST", struct.pack("<I", model.max_cull_polys()))
+
+        #animation bones and data go here:
+        #TODO: THIS
+        
         fp.close()
-
-
-def toFixed(float_value, fraction=12):
-        return int(float_value * pow(2,fraction))
 
 # Emitter: caches and writes commands for the GX
 # engine, with proper command packing when applicible.
