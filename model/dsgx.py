@@ -5,6 +5,40 @@ import struct # , model
 # of animations and their offsets to adjust the base for
 # deformation.
 class Writer:        
+    def write_chunk(self, fp, name, data):
+        if len(name) != 4:
+            print("Cannot write chunk: ", name, ", wrong size for header!")
+            return
+
+        #write the name as a non-null terminated 4-byte sequence
+        fp.write(struct.pack("<cccc", name[0], name[1], name[2], name[3]))
+
+        #write out the length of data, in bytes.
+        length = len(data)
+        if length % 4 != 0:
+            padding = 4 - (length % 4)
+            length = length + padding
+            for i in range(padding):
+                data = data + struct.pack("<c", 0)
+        fp.write(struct.pack("<I", length))
+
+        #finally, write out the data itself
+        fp.write(data)
+
+    def dsgx_string(self, str):
+        #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
+        #this means that any longer strings need to be truncated, and any shorter strings need to be
+        #padded with 0 bytes in the output.
+        output = ""
+        for i in range(31):
+            if i > len(str):
+                output += struct.pack("<c",0)
+            else:
+                output += struct.pack("<c",str[i])
+        #force null terminattion
+        output += struct.pack("<c",0)
+        
+        return output
 
     def face_attributes(self, gx, face, model):
         if face.material != self.current_material:
@@ -130,10 +164,13 @@ def toFixed(float_value, fraction=12):
 class Emitter:
     def __init__(self):
         self.commands = []
+        self.offset = 0
     
     def command(self, command, parameters = []):
         cmd = {'instruction': command, 'params': parameters}
         self.commands.append(cmd)
+        self.offset += 1 + len(parameters)
+        return self.offset
 
     def write(self, packed=False):
         # todo: modify this heavily, allow packed commands
@@ -152,6 +189,7 @@ class Emitter:
         # command list, for glCallList to use.
         out = struct.pack("<I", int(len(out)/4)) + out
         #done ^_^
+        self.offset = 0
         return out
     
     # these are the individual commands, as defined in GBATEK, organized
