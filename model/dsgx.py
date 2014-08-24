@@ -28,6 +28,7 @@ class Writer:
 
         #finally, write out the data itself
         fp.write(data)
+        print("Wrote chunk: ", name)
 
     def dsgx_string(self, str):
         #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
