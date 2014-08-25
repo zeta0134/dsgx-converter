@@ -88,8 +88,27 @@ class Model:
         self.vertecies.append(self.Vertex(location, self))
 
     def addPoly(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None):
-        # todo: use a material instead of a shading flag
         face_normal = self.face_normal(vertex_list)
+
+        #if this is a 2-point polygon, turn it into a triangle; this will draw
+        #on hardware as a perfect line segment
+        if abs(self.vertecies[vertex_list[0]].location - self.vertecies[vertex_list[1]].location) < 0.01:
+            print("Encountered LINE SEGMENT variant 1")
+            vertex_list = [vertex_list[0], vertex_list[2], vertex_list[2]]
+            vertex_normals = [vertex_normals[0], vertex_normals[2], vertex_normals[2]]
+            face_normal = euclid.Vector3(vertex_normals[0][0],vertex_normals[0][1],vertex_normals[0][2]) #pick one at random
+        elif abs(self.vertecies[vertex_list[1]].location - self.vertecies[vertex_list[2]].location) < 0.01:
+            print("Encountered LINE SEGMENT variant 2")
+            vertex_list = [vertex_list[0], vertex_list[1], vertex_list[1]]
+            vertex_normals = [vertex_normals[0], vertex_normals[1], vertex_normals[1]]
+            face_normal = euclid.Vector3(vertex_normals[0][0],vertex_normals[0][1],vertex_normals[0][2])
+        elif abs(self.vertecies[vertex_list[2]].location - self.vertecies[vertex_list[0]].location) < 0.01:
+            print("Encountered LINE SEGMENT variant 3")
+            vertex_list = [vertex_list[0], vertex_list[1], vertex_list[1]]
+            vertex_normals = [vertex_normals[0], vertex_normals[1], vertex_normals[1]]
+            face_normal = euclid.Vector3(vertex_normals[0][0],vertex_normals[0][1],vertex_normals[0][2])
+
+        
         self.polygons.append(self.Polygon(vertex_list, uvlist, material,
                              face_normal, vertex_normals, self))
             
@@ -104,6 +123,7 @@ class Model:
             countNegative = 0
             for face in self.polygons:
                 angle = face.face_normal.dot(testface.face_normal)
+                #print(angle)
                 if angle >= 0:
                     countPositive += 1
                 if angle < 0:

@@ -114,25 +114,26 @@ class Writer:
         self.current_material = None
 
         group_offsets = {}
-        
-        for polytype in range(3,5):
-            if (polytype == 3):
-                gx.begin_vtxs(gx.vtxs_triangle)
-            if (polytype == 4):
-                gx.begin_vtxs(gx.vtxs_quad)
 
-            #process faces that all belong to one vertex group (simple case)
-            for group in model.groups:
-                print("Group: ", group)
-                gx.push()
+        #process faces that all belong to one vertex group (simple case)
+        for group in model.groups:
+            print("Group: ", group)
+            gx.push()
 
-                #store this transformation offset for later
-                if not group in group_offsets:
-                    group_offsets[group] = []
-                group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+            #store this transformation offset for later
+            if not group in group_offsets:
+                group_offsets[group] = []
+            group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
-                #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
-                gx.mtx_mult_4x4(euclid.Matrix4())
+            #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
+            gx.mtx_mult_4x4(euclid.Matrix4())
+
+            for polytype in range(3,5):
+                if (polytype == 3):
+                    gx.begin_vtxs(gx.vtxs_triangle)
+                if (polytype == 4):
+                    gx.begin_vtxs(gx.vtxs_quad)
+
                 for face in model.polygons:
                     if face.vertexGroup() == group and not face.isMixed():
                         if len(face.vertecies) == polytype:
@@ -140,9 +141,15 @@ class Writer:
                             for point in face.vertecies:
                                 self.output_vertex(gx, point, model)
 
-                gx.pop()
+            gx.pop()
 
-            #now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
+        #now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
+        for polytype in range(3,5):
+            if (polytype == 3):
+                gx.begin_vtxs(gx.vtxs_triangle)
+            if (polytype == 4):
+                gx.begin_vtxs(gx.vtxs_quad)
+
             for face in model.polygons:
                 if len(face.vertecies) == polytype:
                     if face.isMixed():
