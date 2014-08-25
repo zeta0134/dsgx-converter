@@ -1,3 +1,4 @@
+import euclid3 as euclid
 import struct # , model
 # Writer: given a Model type, this converts it to an
 # nds object, and outputs several files-- a base model
@@ -130,7 +131,8 @@ class Writer:
                     group_offsets[group] = []
                 group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
-                gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
+                #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
+                gx.mtx_mult_4x4(euclid.Matrix4())
                 for face in model.polygons:
                     if face.vertexGroup() == group and not face.isMixed():
                         if len(face.vertecies) == polytype:
@@ -154,7 +156,8 @@ class Writer:
                                 group_offsets[group] = []
                             group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
-                            gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
+                            #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
+                            gx.mtx_mult_4x4(euclid.Matrix4())
                             self.output_vertex(gx, point, model)
                             gx.pop()
 
@@ -190,8 +193,8 @@ class Writer:
         self.write_chunk(fp, "BONE", bone)
 
         #animation data!
-        bani = bytes()
         for animation in model.animations:
+            bani = bytes()
             bani += self.dsgx_string(animation)
             bani += struct.pack("<I", model.animations[animation].length)
             print("Writing animation data: ", animation)
@@ -206,8 +209,7 @@ class Writer:
                     bani += struct.pack("<iiii", toFixed(matrix.e), toFixed(matrix.f), toFixed(matrix.g), toFixed(matrix.h))
                     bani += struct.pack("<iiii", toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l))
                     bani += struct.pack("<iiii", toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p))
-
-        self.write_chunk(fp, "BANI", bani)
+            self.write_chunk(fp, "BANI", bani)
         
         fp.close()
 
