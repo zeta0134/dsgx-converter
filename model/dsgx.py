@@ -126,7 +126,7 @@ class Writer:
             group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
-            gx.mtx_mult_4x4(euclid.Matrix4())
+            gx.mtx_mult_4x4(model.global_matrix)
 
             for polytype in range(3,5):
                 if (polytype == 3):
@@ -176,7 +176,13 @@ class Writer:
         #then, output the bounding sphere data (needed for multipass stuffs)
         bsph = bytes()
         sphere = model.bounding_sphere()
-        bsph += struct.pack("<ffff", toFixed(sphere[1]), toFixed(sphere[0].x), toFixed(sphere[0].y), toFixed(sphere[0].z))
+        bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].y), toFixed(sphere[0].z), toFixed(sphere[1]))
+        print("Bounding Sphere:")
+        print("X: ", sphere[0].x)
+        print("Y: ", sphere[0].y)
+        print("Z: ", sphere[0].z)
+        print("Radius: ", sphere[1])
+        
         self.write_chunk(fp, "BSPH", bsph)
 
         #output the cull-cost for the object
@@ -239,15 +245,44 @@ class Emitter:
     def write(self, packed=False):
         # todo: modify this heavily, allow packed commands
         out = bytes()
-        for cmd in self.commands:
+        commands = self.commands
+        while len(commands) > 0:
             # pad the command with 0's for unpacked mode
-            
-            out += struct.pack("<BBBB", cmd['instruction'], 0,0,0)
-            #print(hex(cmd['instruction']))
-            for param in cmd['params']:
-                #print(param)
-                #out += struct.pack("<i", param)
-                out += param
+            if packed:
+                if len(commands) >= 4 and len(commands[3]['params']) > 0:
+                    #pack the next 4 commands
+                    out += struct.pack("<BBBB", commands[0]['instruction'], commands[1]['instruction'], commands[2]['instruction'], commands[3]['instruction'])
+                    for i in range(4):
+                        for param in commands[i]['params']:
+                            out += param
+                    commands = commands[4:]
+                elif len(commands) >= 3 and len(commands[2]['params']) > 0:
+                    #pack the next 3 commands
+                    out += struct.pack("<BBBB", commands[0]['instruction'], commands[1]['instruction'], commands[2]['instruction'], 0)
+                    for i in range(3):
+                        for param in commands[i]['params']:
+                            out += param
+                    commands = commands[3:]
+                elif len(commands) >= 2 and len(commands[1]['params']) > 0:
+                    #pack the next 3 commands
+                    out += struct.pack("<BBBB", commands[0]['instruction'], commands[1]['instruction'], 0, 0)
+                    for i in range(2):
+                        for param in commands[i]['params']:
+                            out += param
+                    commands = commands[2:]
+                else:
+                    #output this command as unpacked
+                    out += struct.pack("<BBBB", commands[0]['instruction'], 0,0,0)
+                    for param in commands[0]['params']:
+                        out += param
+                    commands = commands[1:]
+
+            else:
+                #output this command as unpacked
+                out += struct.pack("<BBBB", commands[0]['instruction'], 0,0,0)
+                for param in commands[0]['params']:
+                    out += param
+                commands = commands[1:]
                 
         # ok. Last thing, we need the size of the finished
         # command list, for glCallList to use.

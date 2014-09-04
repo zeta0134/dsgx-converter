@@ -7,6 +7,8 @@ class Model:
         self.vertecies = []
         self.animations = {}
         self.groups = []
+
+        self.global_matrix = euclid.Matrix4()
         
     class Vertex:
         def __init__(self, location=euclid.Vector3(0.0, 0.0, 0.0), model=None):
