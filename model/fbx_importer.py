@@ -1,6 +1,7 @@
 import euclid3 as euclid
 from .model import Model
 import os
+from PIL import Image
 
 from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime, FbxAMatrix, FbxTexture, FbxLayerElement
 
@@ -57,11 +58,21 @@ class Reader:
                 if material.GetClassId().Is(FbxSurfacePhong.ClassId):
                     #check for and process textures
                     texture_name = None
+                    texture_width = 1
+                    texture_height = 1
                     if material.Diffuse.GetSrcObjectCount(FbxTexture.ClassId) > 0:
                         texture = material.Diffuse.GetSrcObject(FbxTexture.ClassId,0)
                         texture_name = os.path.basename(texture.GetFileName())
                         texture_name = os.path.splitext(texture_name)[0]
                         print("Found texture: ", texture_name)
+                        try:
+                            image = Image.open(texture.GetFileName())
+                            texture_width = image.size[0]
+                            texture_height = image.size[1]
+                        except:
+                            print("Could not load texture file: ", texture.GetFileName())
+
+
 
                     #print("Is phong!")
                     #this is a valid enough material to add, so do it!
@@ -77,7 +88,7 @@ class Reader:
                         {"r": material.Diffuse.Get()[0], 
                          "g": material.Diffuse.Get()[1], 
                          "b": material.Diffuse.Get()[2]},
-                         texture_name)
+                         texture_name, texture_width, texture_height)
 
 
     #TODO: More gracefully handle multiple meshes in a single file; we would need to

@@ -150,8 +150,14 @@ class Writer:
                                 # uv coordinate
                                 if model.materials[self.current_material].texture:
                                     print(p)
-                                    gx.texcoord(face.uvlist[p][0] * 256, (1.0 - face.uvlist[p][1]) * 128)
-                                    print("Emitted UV coord: ", face.uvlist[p])
+                                    #two things here:
+                                    #1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
+                                    #   we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
+                                    #2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
+                                    #   expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
+                                    size = model.materials[self.current_material].texture_size
+                                    gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
+                                    print("Emitted UV coord: ", face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
                                 self.output_vertex(gx, face.vertecies[p], model)
 
             gx.pop()

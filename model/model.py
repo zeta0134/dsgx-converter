@@ -78,12 +78,13 @@ class Model:
     def getAnimation(self, name):
         return self.animations[name]
     
-    def addMaterial(self, name, ambient, specular, diffuse, texture=None):
+    def addMaterial(self, name, ambient, specular, diffuse, texture=None, texwidth=0, texheight=0):
         newmtl = self.Material()
         newmtl.ambient = (ambient["r"], ambient["g"], ambient["b"])
         newmtl.specular = (specular["r"], specular["g"], specular["b"])
         newmtl.diffuse = (diffuse["r"], diffuse["g"], diffuse["b"])
         newmtl.texture = texture
+        newmtl.texture_size = (texwidth, texheight)
         self.materials[name] = newmtl
 
     def addVertex(self, location=euclid.Vector3(0.0, 0.0, 0.0)):
