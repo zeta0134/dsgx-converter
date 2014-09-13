@@ -37,11 +37,11 @@ class Reader:
                 cluster.GetTransformLinkMatrix(transform_link_matrix) #if this even works
                 cluster.GetTransformMatrix(transform_matrix) #if this even works
                 self.cluster_transforms[cluster.GetLink().GetName()] = fbx_to_euclid(transform_matrix) * fbx_to_euclid(transform_link_matrix).inverse()
-                print("Cluster: ", cluster.GetLink().GetName())
+                #print("Cluster: ", cluster.GetLink().GetName())
                 #print(self.cluster_transforms[cluster.GetLink().GetName()])
                 #print(fbx_to_euclid(transform_matrix))
 
-                print(cluster.GetLink().GetName(), ": ", cluster.GetControlPointIndicesCount())
+                #print(cluster.GetLink().GetName(), ": ", cluster.GetControlPointIndicesCount())
                 # loop over every point this bone controlls
                 for j in range(cluster.GetControlPointIndicesCount()):
                     if object.vertecies[cluster.GetControlPointIndices()[j]].group != "default":
@@ -50,7 +50,7 @@ class Reader:
 
     def process_materials(self, object, fbx_mesh):
         material_count = fbx_mesh.GetNode().GetMaterialCount()
-        print("Layer count: ", fbx_mesh.GetLayerCount())
+        #print("Layer count: ", fbx_mesh.GetLayerCount())
         for l in range(fbx_mesh.GetLayerCount()):
             for i in range(material_count):
                 material = fbx_mesh.GetNode().GetMaterial(i)
@@ -110,6 +110,7 @@ class Reader:
         self.process_materials(object, mesh)
         material_map = mesh.GetLayer(0).GetMaterials().GetIndexArray()
 
+        print("Mesh Global Transform:")
         print(fbx_to_euclid(mesh.GetNode().EvaluateGlobalTransform()))
         #exit()
         #well ... that explains a lot.
@@ -155,7 +156,7 @@ class Reader:
 
     def process_skeleton(self, object, skeleton):
         #TODO: This obviously.
-        print("SKELETON encountered!")
+        #print("SKELETON encountered!")
         self.bones[skeleton.GetName()] = skeleton
         return
 
@@ -173,7 +174,7 @@ class Reader:
 
         #regardless of emptiness, if this node has any children, we process those as well
         for i in range(node.GetChildCount()):
-            print("recursing into: ", node.GetName())
+            #print("recursing into: ", node.GetName())
             self.process_node(object, node.GetChild(i))
 
     def calculate_transformation(self, bone, frame, last_step=True):
@@ -208,8 +209,8 @@ class Reader:
 
         for i in range(scene.GetSrcObjectCount(FbxAnimStack.ClassId)):
             animation_stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
-            print("Animation: ", animation_stack.GetName())
-            print("Length: ", animation_stack.LocalStop.Get().GetFrameCount())
+            #print("Animation: ", animation_stack.GetName())
+            #print("Length: ", animation_stack.LocalStop.Get().GetFrameCount())
 
             #evaluator.SetContext(animation_stack)
             scene.SetCurrentAnimationStack(animation_stack)

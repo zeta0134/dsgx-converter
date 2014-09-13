@@ -62,12 +62,12 @@ class Writer:
                 True # use256
             )
             self.current_material = face.material
-            print("Switching to mtl: " + face.material)
+            #print("Switching to mtl: " + face.material)
             if model.materials[self.current_material].texture:
-                print("Material has texture! Writing texture info out now.")
+                #print("Material has texture! Writing texture info out now.")
                 gx.teximage_param(256 * 1024, 256, 128, 7)
             else:
-                print("Material has no texture; outputting dummy teximage to clear state")
+                #print("Material has no texture; outputting dummy teximage to clear state")
                 gx.teximage_param(0, 0, 0, 0)
 
         shading = "smooth"
@@ -125,7 +125,7 @@ class Writer:
 
         #process faces that all belong to one vertex group (simple case)
         for group in model.groups:
-            print("Group: ", group)
+            #print("Group: ", group)
             gx.push()
 
             #store this transformation offset for later
@@ -149,7 +149,7 @@ class Writer:
                             for p in range(len(face.vertecies)):
                                 # uv coordinate
                                 if model.materials[self.current_material].texture:
-                                    print(p)
+                                    #print(p)
                                     #two things here:
                                     #1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
                                     #   we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
@@ -157,7 +157,7 @@ class Writer:
                                     #   expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
                                     size = model.materials[self.current_material].texture_size
                                     gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                                    print("Emitted UV coord: ", face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
+                                    #print("Emitted UV coord: ", face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
                                 self.output_vertex(gx, face.vertecies[p], model)
 
             gx.pop()
