@@ -63,6 +63,13 @@ class Writer:
             )
             self.current_material = face.material
             print("Switching to mtl: " + face.material)
+            if model.materials[self.current_material].texture:
+                print("Material has texture! Writing texture info out now.")
+                gx.teximage_param(256 * 1024, 256, 128, 7)
+            else:
+                print("Material has no texture; outputting dummy teximage to clear state")
+                gx.teximage_param(0, 0, 0, 0)
+
         shading = "smooth"
         if shading == "flat":
             # handle color
@@ -73,6 +80,7 @@ class Writer:
             )
 
     def output_vertex(self, gx, point, model):
+
         # point normal
         p_normal = model.point_normal(point)
         if p_normal == None:
@@ -138,8 +146,13 @@ class Writer:
                     if face.vertexGroup() == group and not face.isMixed():
                         if len(face.vertecies) == polytype:
                             self.face_attributes(gx, face, model)
-                            for point in face.vertecies:
-                                self.output_vertex(gx, point, model)
+                            for p in range(len(face.vertecies)):
+                                # uv coordinate
+                                if model.materials[self.current_material].texture:
+                                    print(p)
+                                    gx.texcoord(face.uvlist[p][0] * 256, (1.0 - face.uvlist[p][1]) * 128)
+                                    print("Emitted UV coord: ", face.uvlist[p])
+                                self.output_vertex(gx, face.vertecies[p], model)
 
             gx.pop()
 
@@ -176,7 +189,7 @@ class Writer:
         #then, output the bounding sphere data (needed for multipass stuffs)
         bsph = bytes()
         sphere = model.bounding_sphere()
-        bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].y), toFixed(sphere[0].z), toFixed(sphere[1]))
+        bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].z), toFixed(sphere[0].y * -1), toFixed(sphere[1]))
         print("Bounding Sphere:")
         print("X: ", sphere[0].x)
         print("Y: ", sphere[0].y)
@@ -424,3 +437,34 @@ class Emitter:
                 struct.pack("<i",toFixed(matrix.m)), struct.pack("<i",toFixed(matrix.n)), struct.pack("<i",toFixed(matrix.o)), struct.pack("<i",toFixed(matrix.p))
             ])
 
+    def texcoord(self, u, v):
+        self.command(0x22, [
+            struct.pack("<I",
+            (int(u * 2**4) & 0xFFFF) |
+            ((int(v * 2**4) & 0xFFFF) << 16))])
+
+    def teximage_param(self, offset, width, height, format = 0, palette_transparency = 0, transform_mode = 0, u_repeat = 0, v_repeat = 0, u_flip = 0, v_flip = 0):
+        #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
+        #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
+        width_index = 0
+        while width > 8:
+            width = width >> 1
+            width_index+=1;
+        height_index = 0
+        while height > 8:
+            height = height >> 1
+            height_index+=1;
+
+        attr = (
+            (int(offset / 8) & 0xFFFF) +
+            ((u_repeat & 0x1) << 16) + 
+            ((v_repeat & 0x1) << 17) + 
+            ((u_flip & 0x1) << 18) + 
+            ((v_flip & 0x1) << 19) + 
+            ((width_index & 0x7) << 20) + 
+            ((height_index & 0x7) << 23) + 
+            ((format & 0x7) << 26) + 
+            ((palette_transparency & 0x1) << 29) + 
+            ((transform_mode & 0x3) << 30))
+        self.command(0x2A, [
+            struct.pack("<I",attr)])

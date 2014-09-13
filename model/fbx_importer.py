@@ -1,7 +1,8 @@
 import euclid3 as euclid
 from .model import Model
+import os
 
-from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime, FbxAMatrix
+from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime, FbxAMatrix, FbxTexture, FbxLayerElement
 
 def fbx_to_euclid(input_matrix):
     return euclid.Matrix4.new(
@@ -54,6 +55,14 @@ class Reader:
                 material = fbx_mesh.GetNode().GetMaterial(i)
                 #print("Material: ", material.GetName())
                 if material.GetClassId().Is(FbxSurfacePhong.ClassId):
+                    #check for and process textures
+                    texture_name = None
+                    if material.Diffuse.GetSrcObjectCount(FbxTexture.ClassId) > 0:
+                        texture = material.Diffuse.GetSrcObject(FbxTexture.ClassId,0)
+                        texture_name = os.path.basename(texture.GetFileName())
+                        texture_name = os.path.splitext(texture_name)[0]
+                        print("Found texture: ", texture_name)
+
                     #print("Is phong!")
                     #this is a valid enough material to add, so do it!
                     object.addMaterial(material.GetName(), 
@@ -67,7 +76,9 @@ class Reader:
 
                         {"r": material.Diffuse.Get()[0], 
                          "g": material.Diffuse.Get()[1], 
-                         "b": material.Diffuse.Get()[2]})
+                         "b": material.Diffuse.Get()[2]},
+                         texture_name)
+
 
     #TODO: More gracefully handle multiple meshes in a single file; we would need to
     #offset the vertex count somehow when coding in polygons.
@@ -114,9 +125,19 @@ class Reader:
                             normal = normal_data.GetDirectArray().GetAt(v)
                             #print(normal)
                             normals.append((normal[0],normal[1],normal[2]))
+                        uv_data = mesh.GetLayer(l).GetUVs()
+                        if uv_data:
+                            if uv_data.GetMappingMode() == FbxLayerElement.eByControlPoint:
+                                print("eByControlPoint not supported for UVs!")
+                            elif uv_data.GetMappingMode() ==  FbxLayerElement.eByPolygonVertex:
+                                uv_index = mesh.GetTextureUVIndex(face, v)
+                                uv = uv_data.GetDirectArray().GetAt(uv_index)
+                                #print("UVs: ", uv)
+                                uvlist.append((uv[0], uv[1]))
 
                 #todo: not discard UV coordinates here
-                uvlist = None
+                if len(uvlist) == 0:
+                    uvlist = None
                 object.addPoly(points, uvlist, normals, mesh.GetNode().GetMaterial(material_map.GetAt(face)).GetName())
 
         self.process_clusters(object, mesh)
