@@ -65,7 +65,8 @@ class Writer:
             #print("Switching to mtl: " + face.material)
             if model.materials[self.current_material].texture:
                 #print("Material has texture! Writing texture info out now.")
-                gx.teximage_param(256 * 1024, 256, 128, 7)
+                size = model.materials[self.current_material].texture_size
+                gx.teximage_param(256 * 1024, size[0], size[1], 7)
             else:
                 #print("Material has no texture; outputting dummy teximage to clear state")
                 gx.teximage_param(0, 0, 0, 0)
