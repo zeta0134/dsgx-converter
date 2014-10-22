@@ -63,8 +63,8 @@ class Model:
             self.length = 0 #in frames
         
         def addNode(self, node_name, transform_list):
-            node_name = "Armature|"+node_name
-            #print("Added animation node: ", node_name)
+            #node_name = "Armature|"+node_name
+            print("Added animation node: ", node_name)
             self.nodes[node_name] = transform_list
 
         def getTransform(self, node_name, frame):
