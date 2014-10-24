@@ -10,10 +10,12 @@ from model import dsgx, fbx_importer, obj_importer
 
 def main(args):
     if not valid_command_line_arguments(args):
-        error_exit(1, "Usage: %s [file to convert]" % args[0])
+        error_exit(1, "Usage: %s [file to convert] <file to save>" % args[0])
 
     input_filename = args[1]
-    output_filename = substitute_extension(input_filename, ".dsgx")
+    output_filename = determine_output_filename(input_filename, args)
+
+
 
     if not known_file_type(input_filename):
         error_exit(1,
@@ -23,8 +25,14 @@ def main(args):
     display_model_info(model_to_convert)
     save_model_as_dsgx(model_to_convert, output_filename)
 
+def determine_output_filename(input_filename, args):
+    filename = substitute_extension(input_filename, ".dsgx")
+    if len(args) >= 3:
+        filename = args[2]
+    return filename
+
 def valid_command_line_arguments(args):
-    return len(args) == 2
+    return 2 <= len(args) <= 3
 
 def error_exit(status_code, error_message=""):
     if error_message:
