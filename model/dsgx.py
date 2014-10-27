@@ -48,6 +48,8 @@ class Writer:
         return output
 
     def face_attributes(self, gx, face, model):
+        #write out per-polygon lighting and texture data, but only when that
+        #data is different from the previous polygon
         if face.material != self.current_material:
             gx.dif_amb(
                 (
@@ -64,9 +66,14 @@ class Writer:
             self.current_material = face.material
             #print("Switching to mtl: " + face.material)
             if model.materials[self.current_material].texture:
-                #print("Material has texture! Writing texture info out now.")
+                print("Material has texture! Writing texture info out now.")
                 size = model.materials[self.current_material].texture_size
                 gx.teximage_param(256 * 1024, size[0], size[1], 7)
+
+                texture_name = model.materials[self.current_material].texture
+                if not texture_name in self.texture_offsets:
+                    self.texture_offsets[texture_name] = []
+                self.texture_offsets[texture_name].append(gx.offset)
             else:
                 #print("Material has no texture; outputting dummy teximage to clear state")
                 gx.teximage_param(0, 0, 0, 0)
@@ -81,7 +88,6 @@ class Writer:
             )
 
     def output_vertex(self, gx, point, model):
-
         # point normal
         p_normal = model.point_normal(point)
         if p_normal == None:
@@ -112,17 +118,17 @@ class Writer:
         gx.color(64, 64, 64, True) #use256 mode
         gx.polygon_attr(light0=1, light1=1)
 
-        #default material, if no other material gets specified
+        # default material, if no other material gets specified
         gx.dif_amb(
-            (192,192,192), #diffuse
-            (32,32,32), #ambient fanciness
-            False, #setVertexColor (not sure)
-            True # use256
+            (192,192,192), # diffuse
+            (32,32,32),    # ambient fanciness
+            False,         # setVertexColor (not sure)
+            True           # use256
         )
         
         self.current_material = None
-
-        group_offsets = {}
+        self.group_offsets = {}
+        self.texture_offsets = {}
 
         #process faces that all belong to one vertex group (simple case)
         for group in model.groups:
@@ -130,9 +136,9 @@ class Writer:
             gx.push()
 
             #store this transformation offset for later
-            if not group in group_offsets:
-                group_offsets[group] = []
-            group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+            if not group in self.group_offsets:
+                self.group_offsets[group] = []
+            self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
             gx.mtx_mult_4x4(model.global_matrix)
@@ -210,20 +216,35 @@ class Writer:
 
         #matrix offsets for each bone
         bone = bytes()
-        bone += struct.pack("<I", len(group_offsets)) #number of bones in the file
-        for group in sorted(group_offsets):
+        bone += struct.pack("<I", len(self.group_offsets)) #number of bones in the file
+        for group in sorted(self.group_offsets):
             bone += self.dsgx_string(group) #name of this bone
-            bone += struct.pack("<I", len(group_offsets[group])) #number of copies of this matrix in the dsgx file
+            bone += struct.pack("<I", len(self.group_offsets[group])) #number of copies of this matrix in the dsgx file
 
             #debug
             print("Writing bone data for:  ", group)
-            print("Number of offsets: ", len(group_offsets[group]))
+            print("Number of offsets: ", len(self.group_offsets[group]))
 
-            for offset in group_offsets[group]:
+            for offset in self.group_offsets[group]:
                 bone += struct.pack("<I", offset)
                 #print(offset, " ", end="")
             #print("")
         self.write_chunk(fp, "BONE", bone)
+
+        #texparam offsets for each texture
+        txtr = bytes()
+        txtr += struct.pack("<I", len(self.texture_offsets))
+        for texture in sorted(self.texture_offsets):
+            txtr += self.dsgx_string(texture) #name of this texture
+            txtr += struct.pack("<I", len(self.texture_offsets[texture])) #number of references to this texture in the dsgx file
+
+            #debug!
+            print("Writing texture data for: ", texture)
+            print("Number of references: ", len(self.texture_offsets))
+
+            for offset in self.texture_offsets[texture]:
+                txtr += struct.pack("<I", offset)
+        self.write_chunk(fp, "TXTR", txtr)
 
         #animation data!
         for animation in model.animations:
@@ -235,7 +256,7 @@ class Writer:
             #here, we output bone data per frame of the animation, making
             #sure to use the same bone order as the BONE chunk
             for frame in range(model.animations[animation].length):
-                for group in sorted(group_offsets):
+                for group in sorted(self.group_offsets):
                     matrix = model.animations[animation].getTransform(group, frame)
                     #hoo boy
                     bani += struct.pack("<iiii", toFixed(matrix.a), toFixed(matrix.b), toFixed(matrix.c), toFixed(matrix.d))
