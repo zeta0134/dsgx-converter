@@ -6,7 +6,7 @@ class Model:
         self.materials = {}
         self.vertecies = []
         self.animations = {}
-        self.groups = []
+        self.groups = ["default"]
 
         self.global_matrix = euclid.Matrix4()
         

@@ -33,6 +33,8 @@ class Writer:
         print("Length: ", int(length / 4))
 
     def dsgx_string(self, str):
+        if str == None:
+            str = ""
         #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
         #this means that any longer strings need to be truncated, and any shorter strings need to be
         #padded with 0 bytes in the output.
@@ -51,6 +53,21 @@ class Writer:
         #write out per-polygon lighting and texture data, but only when that
         #data is different from the previous polygon
         if face.material != self.current_material:
+            self.current_material = face.material
+            print("Switching to mtl: " + face.material)
+            if model.materials[self.current_material].texture != None:
+                print("Material has texture! Writing texture info out now.")
+                size = model.materials[self.current_material].texture_size
+                gx.teximage_param(256 * 1024, size[0], size[1], 7)
+
+                texture_name = model.materials[self.current_material].texture
+                if not texture_name in self.texture_offsets:
+                    self.texture_offsets[texture_name] = []
+                self.texture_offsets[texture_name].append(gx.offset)
+            else:
+                print("Material has no texture; outputting dummy teximage to clear state")
+                gx.teximage_param(0, 0, 0, 0)
+
             gx.dif_amb(
                 (
                     model.materials[face.material].diffuse[0] * 255,
@@ -63,29 +80,15 @@ class Writer:
                 False, #setVertexColor (not sure)
                 True # use256
             )
-            self.current_material = face.material
-            #print("Switching to mtl: " + face.material)
-            if model.materials[self.current_material].texture:
-                print("Material has texture! Writing texture info out now.")
-                size = model.materials[self.current_material].texture_size
-                gx.teximage_param(256 * 1024, size[0], size[1], 7)
 
-                texture_name = model.materials[self.current_material].texture
-                if not texture_name in self.texture_offsets:
-                    self.texture_offsets[texture_name] = []
-                self.texture_offsets[texture_name].append(gx.offset)
-            else:
-                #print("Material has no texture; outputting dummy teximage to clear state")
-                gx.teximage_param(0, 0, 0, 0)
-
-        shading = "smooth"
-        if shading == "flat":
-            # handle color
-            gx.normal(
-                face.face_normal[0],
-                face.face_normal[1],
-                face.face_normal[2],
-            )
+            shading = "smooth"
+            if shading == "flat":
+                # handle color
+                gx.normal(
+                    face.face_normal[0],
+                    face.face_normal[1],
+                    face.face_normal[2],
+                )
 
     def output_vertex(self, gx, point, model):
         # point normal
@@ -185,9 +188,9 @@ class Writer:
 
                             #store this transformation offset for later
                             group = model.vertecies[point].group
-                            if not group in group_offsets:
-                                group_offsets[group] = []
-                            group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+                            if not group in self.group_offsets:
+                                self.group_offsets[group] = []
+                            self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
                             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
                             gx.mtx_mult_4x4(euclid.Matrix4())
