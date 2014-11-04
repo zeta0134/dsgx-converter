@@ -49,6 +49,29 @@ class Writer:
 
         return output
 
+    def parse_material_flags(self, material_name):
+        #given the name of a material, see if there are any special flags
+        #to extract. Material flags are in the format:
+        #flag=value,flag=value|name
+        #the presence of a pipe character indicates that they are flags to
+        #parse, and the flags themselves are comma separated.
+
+        sections = material_name.split("|")
+        if len(sections) == 1:
+            return None
+
+        flags = {}
+        #split the separate flags on ","
+        for flag in sections[0].split(","):
+            #if a flag has a value, it will be preceeded by a "="
+            parts = flag.split("=")
+            flag_name = parts[0]
+            if  len(parts) > 1:
+                flags[flag_name] = parts[1]
+            else:
+                flags[flag_name] = True
+        return flags
+
     def face_attributes(self, gx, face, model):
         #write out per-polygon lighting and texture data, but only when that
         #data is different from the previous polygon
@@ -69,6 +92,23 @@ class Writer:
             else:
                 print("Material has no texture; outputting dummy teximage to clear state")
                 gx.teximage_param(0, 0, 0, 0)
+
+            #polygon attributes for this material
+            flags = self.parse_material_flags(self.current_material)
+            if flags == None:
+                gx.polygon_attr(light0=1, light1=1)
+            else:
+                print("Encountered special case material!")
+                polygon_alpha = 31
+                if "alpha" in flags:
+                    alpha = int(flags["alpha"])
+                    print("Custom alpha: ", alpha)
+                poly_id = 0
+                if "id" in flags:
+                    poly_id = int(flags["id"])
+                    print("Custom ID: ", poly_id)
+                gx.polygon_attr(light0=1, light1=1, alpha=polygon_alpha, polygon_id=poly_id)
+
 
             gx.dif_amb(
                 (
@@ -264,12 +304,13 @@ class Writer:
             #sure to use the same bone order as the BONE chunk
             for frame in range(model.animations[animation].length):
                 for group in sorted(self.group_offsets):
-                    matrix = model.animations[animation].getTransform(group, frame)
-                    #hoo boy
-                    bani += struct.pack("<iiii", toFixed(matrix.a), toFixed(matrix.b), toFixed(matrix.c), toFixed(matrix.d))
-                    bani += struct.pack("<iiii", toFixed(matrix.e), toFixed(matrix.f), toFixed(matrix.g), toFixed(matrix.h))
-                    bani += struct.pack("<iiii", toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l))
-                    bani += struct.pack("<iiii", toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p))
+                    if group != "default":
+                        matrix = model.animations[animation].getTransform(group, frame)
+                        #hoo boy
+                        bani += struct.pack("<iiii", toFixed(matrix.a), toFixed(matrix.b), toFixed(matrix.c), toFixed(matrix.d))
+                        bani += struct.pack("<iiii", toFixed(matrix.e), toFixed(matrix.f), toFixed(matrix.g), toFixed(matrix.h))
+                        bani += struct.pack("<iiii", toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l))
+                        bani += struct.pack("<iiii", toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p))
             self.write_chunk(fp, "BANI", bani)
         
         fp.close()
