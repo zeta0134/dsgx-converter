@@ -57,13 +57,15 @@ class Writer:
             print("Switching to mtl: " + face.material)
             if model.materials[self.current_material].texture != None:
                 print("Material has texture! Writing texture info out now.")
-                size = model.materials[self.current_material].texture_size
-                gx.teximage_param(256 * 1024, size[0], size[1], 7)
-
                 texture_name = model.materials[self.current_material].texture
                 if not texture_name in self.texture_offsets:
                     self.texture_offsets[texture_name] = []
-                self.texture_offsets[texture_name].append(gx.offset)
+                self.texture_offsets[texture_name].append(gx.offset + 1)
+
+                size = model.materials[self.current_material].texture_size
+                gx.teximage_param(256 * 1024, size[0], size[1], 7)
+
+                
             else:
                 print("Material has no texture; outputting dummy teximage to clear state")
                 gx.teximage_param(0, 0, 0, 0)
@@ -237,13 +239,15 @@ class Writer:
         #texparam offsets for each texture
         txtr = bytes()
         txtr += struct.pack("<I", len(self.texture_offsets))
+        print("Total number of textures: ", len(self.texture_offsets))
         for texture in sorted(self.texture_offsets):
             txtr += self.dsgx_string(texture) #name of this texture
+
             txtr += struct.pack("<I", len(self.texture_offsets[texture])) #number of references to this texture in the dsgx file
 
             #debug!
             print("Writing texture data for: ", texture)
-            print("Number of references: ", len(self.texture_offsets))
+            print("Number of references: ", len(self.texture_offsets[texture]))
 
             for offset in self.texture_offsets[texture]:
                 txtr += struct.pack("<I", offset)
@@ -474,7 +478,7 @@ class Emitter:
             (int(u * 2**4) & 0xFFFF) |
             ((int(v * 2**4) & 0xFFFF) << 16))])
 
-    def teximage_param(self, offset, width, height, format = 0, palette_transparency = 0, transform_mode = 0, u_repeat = 0, v_repeat = 0, u_flip = 0, v_flip = 0):
+    def teximage_param(self, offset, width, height, format = 0, palette_transparency = 0, transform_mode = 0, u_repeat = 1, v_repeat = 1, u_flip = 0, v_flip = 0):
         #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
         #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
         width_index = 0
