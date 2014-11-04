@@ -115,7 +115,7 @@ class Reader:
         #exit()
         #well ... that explains a lot.
         self.mesh_global = fbx_to_euclid(mesh.GetNode().EvaluateGlobalTransform())
-        object.global_mesn = self.mesh_global
+        object.global_matrix = self.mesh_global
 
         for face in range(mesh.GetPolygonCount()):
             #this importer only supports triangles and

@@ -191,6 +191,9 @@ class Writer:
 
             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
             gx.mtx_mult_4x4(model.global_matrix)
+            print("model.global_matrix")
+            print(model.global_matrix)
+            #gx.mtx_mult_4x4(euclid.Matrix4())
 
             for polytype in range(3,5):
                 if (polytype == 3):
@@ -249,7 +252,8 @@ class Writer:
                             self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
                             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
-                            gx.mtx_mult_4x4(euclid.Matrix4())
+                            #gx.mtx_mult_4x4(euclid.Matrix4())
+                            gx.mtx_mult_4x4(model.global_matrix)
                             self.output_vertex(gx, point, model)
                             gx.pop()
 
