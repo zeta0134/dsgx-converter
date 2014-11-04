@@ -97,12 +97,13 @@ class Writer:
             flags = self.parse_material_flags(self.current_material)
             if flags == None:
                 gx.polygon_attr(light0=1, light1=1)
+                pass
             else:
                 print("Encountered special case material!")
                 polygon_alpha = 31
                 if "alpha" in flags:
-                    alpha = int(flags["alpha"])
-                    print("Custom alpha: ", alpha)
+                    polygon_alpha = int(flags["alpha"])
+                    print("Custom alpha: ", polygon_alpha)
                 poly_id = 0
                 if "id" in flags:
                     poly_id = int(flags["id"])
@@ -131,6 +132,8 @@ class Writer:
                     face.face_normal[1],
                     face.face_normal[2],
                 )
+            return True
+        return False
 
     def output_vertex(self, gx, point, model):
         # point normal
@@ -181,9 +184,10 @@ class Writer:
             gx.push()
 
             #store this transformation offset for later
-            if not group in self.group_offsets:
-                self.group_offsets[group] = []
-            self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+            if group != "default":
+                if not group in self.group_offsets:
+                    self.group_offsets[group] = []
+                self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
             gx.mtx_mult_4x4(model.global_matrix)
@@ -197,7 +201,12 @@ class Writer:
                 for face in model.polygons:
                     if face.vertexGroup() == group and not face.isMixed():
                         if len(face.vertecies) == polytype:
-                            self.face_attributes(gx, face, model)
+                            if self.face_attributes(gx, face, model):
+                                #on material edges, we need to start a new list
+                                if (polytype == 3):
+                                    gx.begin_vtxs(gx.vtxs_triangle)
+                                if (polytype == 4):
+                                    gx.begin_vtxs(gx.vtxs_quad)
                             for p in range(len(face.vertecies)):
                                 # uv coordinate
                                 if model.materials[self.current_material].texture:
@@ -224,7 +233,12 @@ class Writer:
             for face in model.polygons:
                 if len(face.vertecies) == polytype:
                     if face.isMixed():
-                        self.face_attributes(gx, face, model)
+                        if self.face_attributes(gx, face, model):
+                            #on material edges, we need to start a new list
+                                if (polytype == 3):
+                                    gx.begin_vtxs(gx.vtxs_triangle)
+                                if (polytype == 4):
+                                    gx.begin_vtxs(gx.vtxs_quad)
                         for point in face.vertecies:
                             gx.push()
 
@@ -263,17 +277,18 @@ class Writer:
         bone = bytes()
         bone += struct.pack("<I", len(self.group_offsets)) #number of bones in the file
         for group in sorted(self.group_offsets):
-            bone += self.dsgx_string(group) #name of this bone
-            bone += struct.pack("<I", len(self.group_offsets[group])) #number of copies of this matrix in the dsgx file
+            if group != "default":
+                bone += self.dsgx_string(group) #name of this bone
+                bone += struct.pack("<I", len(self.group_offsets[group])) #number of copies of this matrix in the dsgx file
 
-            #debug
-            print("Writing bone data for:  ", group)
-            print("Number of offsets: ", len(self.group_offsets[group]))
+                #debug
+                print("Writing bone data for:  ", group)
+                print("Number of offsets: ", len(self.group_offsets[group]))
 
-            for offset in self.group_offsets[group]:
-                bone += struct.pack("<I", offset)
-                #print(offset, " ", end="")
-            #print("")
+                for offset in self.group_offsets[group]:
+                    bone += struct.pack("<I", offset)
+                    #print(offset, " ", end="")
+                #print("")
         self.write_chunk(fp, "BONE", bone)
 
         #texparam offsets for each texture
