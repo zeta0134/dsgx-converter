@@ -178,6 +178,9 @@ class Writer:
         self.group_offsets = {}
         self.texture_offsets = {}
 
+        print("model.global_matrix")
+        print(model.global_matrix)
+
         #process faces that all belong to one vertex group (simple case)
         for group in model.groups:
             #print("Group: ", group)
@@ -191,8 +194,7 @@ class Writer:
 
             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
             gx.mtx_mult_4x4(model.global_matrix)
-            print("model.global_matrix")
-            print(model.global_matrix)
+
             #gx.mtx_mult_4x4(euclid.Matrix4())
 
             for polytype in range(3,5):

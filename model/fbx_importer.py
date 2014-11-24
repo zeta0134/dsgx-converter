@@ -209,19 +209,23 @@ class Reader:
 
         for i in range(scene.GetSrcObjectCount(FbxAnimStack.ClassId)):
             animation_stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
-            #print("Animation: ", animation_stack.GetName())
-            #print("Length: ", animation_stack.LocalStop.Get().GetFrameCount())
+            print("Animation: ", animation_stack.GetName())
+            print("Length: ", animation_stack.LocalStop.Get().GetFrameCount())
 
             #evaluator.SetContext(animation_stack)
             scene.SetCurrentAnimationStack(animation_stack)
             obj_animation = object.createAnimation(animation_stack.GetName())
-            obj_animation.length = animation_stack.LocalStop.Get().GetFrameCount()
+
+            # Note here: animations in blender are 60FPS, but FBX forces it to
+            # read as 30 FPS. It totally accepts half-frames for steps, so we're
+            # fiddling with the numbers to convert it back to 60 FPS for export.
+            obj_animation.length = animation_stack.LocalStop.Get().GetFrameCount() * 2
 
             #initialize our list of animation stuffs
             for k in self.bones:
                 transform_list = []
-                for frame in range(obj_animation.length):
-                    transform_list.append(self.calculate_transformation(self.bones[k], frame))
+                for frame in range(obj_animation.length * 2):
+                    transform_list.append(self.calculate_transformation(self.bones[k], frame / 2))
 
                 obj_animation.addNode(self.bones[k].GetName(), transform_list)
 
