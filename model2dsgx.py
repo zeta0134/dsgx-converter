@@ -10,7 +10,7 @@ from model import dsgx, fbx_importer, obj_importer
 
 def main(args):
     if not valid_command_line_arguments(args):
-        error_exit(1, "Usage: %s [file to convert] <file to save>" % args[0])
+        error_exit(1, "Usage: %s <file to convert> [file to save]" % args[0])
 
     input_filename = args[1]
     output_filename = determine_output_filename(input_filename, args)
