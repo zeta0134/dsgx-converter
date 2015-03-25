@@ -259,7 +259,10 @@ class Writer:
                             self.output_vertex(gx, point, model)
                             gx.pop()
 
-        
+        #debug: write out the cycle count for the dsgx file
+        print("Cycles to Draw: ", gx.cycles)
+
+
         fp = open(filename, "wb")
         #first things first, output the main data
         self.write_chunk(fp, "DSGX", gx.write())
@@ -345,6 +348,7 @@ class Emitter:
     def __init__(self):
         self.commands = []
         self.offset = 0
+        self.cycles = 0
     
     def command(self, command, parameters = []):
         cmd = {'instruction': command, 'params': parameters}
@@ -411,6 +415,7 @@ class Emitter:
     vtxs_quadstrip = 3    
     def begin_vtxs(self, format):
         self.command(0x40, [struct.pack("<I",format & 0x3)])
+        self.cycles += 1
         
     def end_vtxs(self):
         pass #dummy command, real hardware does nothing, no point in outputting
@@ -435,6 +440,7 @@ class Emitter:
             ((int(y * 2**12) & 0xFFFF) << 16)),
             struct.pack("<I",(int(z * 2**12) & 0xFFFF))
         ])
+        self.cycles += 9
     
     polygon_mode_modulation = 0
     polygon_mode_normal = 0
@@ -473,6 +479,7 @@ class Emitter:
         self.command(0x29, [
             struct.pack("<I",attr)
         ])
+        self.cycles += 1
         
     def color(self, red, green, blue, use256=False):
         if (use256):
@@ -486,6 +493,7 @@ class Emitter:
             ((green & 0x1F) << 5) + 
             ((blue & 0x1F) << 10))
         ])
+        self.cycles += 1
     
     def normal(self, x, y, z):
         self.command(0x21, [
@@ -494,6 +502,7 @@ class Emitter:
             ((int((y*0.95) * 2**9) & 0x3FF) << 10) + 
             ((int((z*0.95) * 2**9) & 0x3FF) << 20))
         ])
+        self.cycles += 9 # This is assuming just ONE light is turned on
         
     def dif_amb(self, diffuse, ambient, setvertex=False, use256=False):
         if (use256):
@@ -518,12 +527,15 @@ class Emitter:
             ((ambient[1] & 0x1F) << 21) + 
             ((ambient[2] & 0x1F) << 26))
         ])
+        self.cycles += 4
 
     def push(self):
         self.command(0x11)
+        self.cycles += 17
 
     def pop(self):
         self.command(0x12, [struct.pack("<I",0x1)])
+        self.cycles += 36
 
     #note: expects a euclid.py matrix, any other format will not work
     def mtx_mult_4x4(self, matrix):
@@ -533,12 +545,14 @@ class Emitter:
                 struct.pack("<i",toFixed(matrix.i)), struct.pack("<i",toFixed(matrix.j)), struct.pack("<i",toFixed(matrix.k)), struct.pack("<i",toFixed(matrix.l)), 
                 struct.pack("<i",toFixed(matrix.m)), struct.pack("<i",toFixed(matrix.n)), struct.pack("<i",toFixed(matrix.o)), struct.pack("<i",toFixed(matrix.p))
             ])
+        self.cycles += 35
 
     def texcoord(self, u, v):
         self.command(0x22, [
             struct.pack("<I",
             (int(u * 2**4) & 0xFFFF) |
             ((int(v * 2**4) & 0xFFFF) << 16))])
+        self.cycles += 1
 
     def teximage_param(self, offset, width, height, format = 0, palette_transparency = 0, transform_mode = 0, u_repeat = 1, v_repeat = 1, u_flip = 0, v_flip = 0):
         #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
@@ -565,3 +579,4 @@ class Emitter:
             ((transform_mode & 0x3) << 30))
         self.command(0x2A, [
             struct.pack("<I",attr)])
+        self.cycles += 1
