@@ -148,11 +148,18 @@ class Writer:
             )
         # location
         gx.vtx_16(
-            model.vertecies[point].location.x,
-            model.vertecies[point].location.y,
-            model.vertecies[point].location.z
+            model.vertecies[point].location.x * self.scale_factor,
+            model.vertecies[point].location.y * self.scale_factor,
+            model.vertecies[point].location.z * self.scale_factor
         )
 
+    def determineScaleFactor(self, model):
+        self.scale_factor = 1.0
+        bb = model.bounding_box()
+        largest_coordinate = max(abs(bb["wx"]), abs(bb["wy"]), abs(bb["wz"]))
+
+        if largest_coordinate > 7.9:
+            self.scale_factor = 7.9 / largest_coordinate
 
     def write(self, filename, model):
         gx = Emitter()
@@ -177,6 +184,11 @@ class Writer:
         self.current_material = None
         self.group_offsets = {}
         self.texture_offsets = {}
+
+        self.determineScaleFactor(model)
+
+        gx.push()
+        gx.mtx_scale(1 / self.scale_factor, 1 / self.scale_factor, 1 / self.scale_factor)
 
         print("model.global_matrix")
         print(model.global_matrix)
@@ -258,6 +270,8 @@ class Writer:
                             gx.mtx_mult_4x4(model.global_matrix)
                             self.output_vertex(gx, point, model)
                             gx.pop()
+
+        gx.pop() # mtx scale
 
         #debug: write out the cycle count for the dsgx file
         print("Cycles to Draw: ", gx.cycles)
@@ -546,6 +560,14 @@ class Emitter:
                 struct.pack("<i",toFixed(matrix.m)), struct.pack("<i",toFixed(matrix.n)), struct.pack("<i",toFixed(matrix.o)), struct.pack("<i",toFixed(matrix.p))
             ])
         self.cycles += 35
+
+    def mtx_scale(self, sx, sy, sz):
+        self.command(0x1B, [
+                struct.pack("<i", toFixed(sx)),
+                struct.pack("<i", toFixed(sy)),
+                struct.pack("<i", toFixed(sz))
+            ])
+        self.cycles += 22
 
     def texcoord(self, u, v):
         self.command(0x22, [
