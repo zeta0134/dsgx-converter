@@ -135,7 +135,7 @@ class Writer:
             return True
         return False
 
-    def output_vertex(self, gx, point, model):
+    def output_vertex(self, gx, point, model, vtx10=False):
         # point normal
         p_normal = model.point_normal(point)
         if p_normal == None:
@@ -147,11 +147,18 @@ class Writer:
                 p_normal[2],
             )
         # location
-        gx.vtx_16(
-            model.vertecies[point].location.x * self.scale_factor,
-            model.vertecies[point].location.y * self.scale_factor,
-            model.vertecies[point].location.z * self.scale_factor
-        )
+        if vtx10:
+            gx.vtx_10(
+                model.vertecies[point].location.x * self.scale_factor,
+                model.vertecies[point].location.y * self.scale_factor,
+                model.vertecies[point].location.z * self.scale_factor
+            )
+        else:
+            gx.vtx_16(
+                model.vertecies[point].location.x * self.scale_factor,
+                model.vertecies[point].location.y * self.scale_factor,
+                model.vertecies[point].location.z * self.scale_factor
+            )
 
     def determineScaleFactor(self, model):
         self.scale_factor = 1.0
@@ -161,7 +168,7 @@ class Writer:
         if largest_coordinate > 7.9:
             self.scale_factor = 7.9 / largest_coordinate
 
-    def write(self, filename, model):
+    def write(self, filename, model, vtx10=False):
         gx = Emitter()
         
         # basically, for each face given, output the appropriate
@@ -235,7 +242,7 @@ class Writer:
                                     size = model.materials[self.current_material].texture_size
                                     gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
                                     #print("Emitted UV coord: ", face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                                self.output_vertex(gx, face.vertecies[p], model)
+                                self.output_vertex(gx, face.vertecies[p], model, vtx10)
 
             gx.pop()
 
@@ -267,7 +274,7 @@ class Writer:
                             #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
                             #gx.mtx_mult_4x4(euclid.Matrix4())
                             gx.mtx_mult_4x4(model.global_matrix)
-                            self.output_vertex(gx, point, model)
+                            self.output_vertex(gx, point, model, vtx10)
                             gx.pop()
 
         gx.pop() # mtx scale

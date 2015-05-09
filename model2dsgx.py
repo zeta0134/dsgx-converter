@@ -1,21 +1,31 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 """
+DSGX Converter for Nintendo DS Homebrew
 Created on Thu Oct 21 00:31:54 2010
 
 @author: Nicholas Flynt, Cristián Romo
+
+Usage:
+    model2dsgx.py [options] <input_filename>
+    model2dsgx.py [options] <input_filename> <output_filename>
+
+Options:
+    -h --help       Print this message and exit
+    -v --version    Show version number and exit
+    --vtx10         Output 10-bit vertex coordinates (default is 16-bit)
+
 """
 import os, sys
 from model import dsgx, fbx_importer, obj_importer
+from docopt import docopt
 
 def main(args):
-    if not valid_command_line_arguments(args):
-        error_exit(1, "Usage: %s <file to convert> [file to save]" % args[0])
+    arguments = docopt(__doc__, version="0.1a")
+    print(arguments)
 
-    input_filename = args[1]
-    output_filename = determine_output_filename(input_filename, args)
-
-
+    input_filename = arguments["<input_filename>"]
+    output_filename = determine_output_filename(input_filename, arguments)
 
     if not known_file_type(input_filename):
         error_exit(1,
@@ -23,16 +33,12 @@ def main(args):
 
     model_to_convert = load_model(input_filename)
     display_model_info(model_to_convert)
-    save_model_as_dsgx(model_to_convert, output_filename)
+    save_model_as_dsgx(model_to_convert, output_filename, arguments)
 
 def determine_output_filename(input_filename, args):
-    filename = substitute_extension(input_filename, ".dsgx")
-    if len(args) >= 3:
-        filename = args[2]
-    return filename
-
-def valid_command_line_arguments(args):
-    return 2 <= len(args) <= 3
+    if "<output_filename>" in args:
+        return args["<output_filename>"]
+    return substitute_extension(input_filename, ".dsgx")
 
 def error_exit(status_code, error_message=""):
     if error_message:
@@ -63,9 +69,9 @@ def display_model_info(model):
 
     print("Worst-case Draw Cost (polygons): %d" % model.max_cull_polys())
 
-def save_model_as_dsgx(model, filename):
+def save_model_as_dsgx(model, filename, arguments):
     print("Attempting output...")
-    dsgx.Writer().write(filename, model)
+    dsgx.Writer().write(filename, model, arguments["--vtx10"])
     print("Output Successful!")
 
 def read_autodesk_fbx(filename):
