@@ -204,10 +204,9 @@ class Writer:
                     self.group_offsets[group] = []
                 self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
-            #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(group, 15))
+            #emit a default matrix for this group; this makes the T-pose work
+            #if no animation is selected
             gx.mtx_mult_4x4(model.global_matrix)
-
-            #gx.mtx_mult_4x4(euclid.Matrix4())
 
             for polytype in range(3,5):
                 if (polytype == 3):
@@ -443,11 +442,6 @@ class Emitter:
         # values outside of the range (approx. -8 to 8) will produce strange
         # results.
         
-        # cheat
-        #x = x/4
-        #y = y/4
-        #z = z/4
-        
         self.command(0x23, [
             struct.pack("<I",
             (int(x * 2**12) & 0xFFFF) |
@@ -455,6 +449,20 @@ class Emitter:
             struct.pack("<I",(int(z * 2**12) & 0xFFFF))
         ])
         self.cycles += 9
+
+    def vtx_10(self, x, y, z):
+        # same as vtx_10, but using 10bit coordinates with 6bit fractional bits;
+        # this ends up being somewhat less accurate, but consumes one fewer
+        # parameter in the list, and costs one fewer GPU cycle to draw.
+
+        self.command(0x24, [
+            struct.pack("<I",
+            (int(x * 2**6) & 0x3FF) |
+            ((int(y * 2**6) & 0x3FF) << 10) | 
+            ((int(z * 2**6) & 0x3FF) << 20))
+        ])
+        self.cycles += 8
+
     
     polygon_mode_modulation = 0
     polygon_mode_normal = 0
