@@ -194,8 +194,10 @@ class Writer:
 
         self.determineScaleFactor(model)
 
-        gx.push()
-        gx.mtx_scale(1 / self.scale_factor, 1 / self.scale_factor, 1 / self.scale_factor)
+        if self.scale_factor != 1.0:
+            gx.push()
+            gx.mtx_scale(1 / self.scale_factor, 1 / self.scale_factor, 
+                    1 / self.scale_factor)
 
         print("model.global_matrix")
         print(model.global_matrix)
@@ -277,7 +279,8 @@ class Writer:
                             self.output_vertex(gx, point, model, vtx10)
                             gx.pop()
 
-        gx.pop() # mtx scale
+        if self.scale_factor != 1.0:
+            gx.pop() # mtx scale
 
         #debug: write out the cycle count for the dsgx file
         print("Cycles to Draw: ", gx.cycles)
