@@ -204,7 +204,6 @@ class Writer:
 
         #process faces that all belong to one vertex group (simple case)
         for group in model.groups:
-            #print("Group: ", group)
             gx.push()
 
             #store this transformation offset for later
@@ -273,8 +272,6 @@ class Writer:
                                 self.group_offsets[group] = []
                             self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
-                            #gx.mtx_mult_4x4(model.animations["Armature|Idle1"].getTransform(model.vertecies[point].group, 15))
-                            #gx.mtx_mult_4x4(euclid.Matrix4())
                             gx.mtx_mult_4x4(model.global_matrix)
                             self.output_vertex(gx, point, model, vtx10)
                             gx.pop()
