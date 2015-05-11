@@ -6,13 +6,16 @@ import struct # , model
 # of animations and their offsets to adjust the base for
 # deformation.
 
+import logging
+log = logging.getLogger(__name__)
+
 def toFixed(float_value, fraction=12):
         return int(float_value * pow(2,fraction))
 
 class Writer:        
     def write_chunk(self, fp, name, data):
         if len(name) != 4:
-            print("Cannot write chunk: ", name, ", wrong size for header!")
+            log.error("Cannot write chunk: %s, wrong size for header!" % name)
             return
 
         #write the name as a non-null terminated 4-byte sequence
@@ -29,8 +32,8 @@ class Writer:
 
         #finally, write out the data itself
         fp.write(data)
-        print("Wrote chunk: ", name)
-        print("Length: ", int(length / 4))
+        log.debug("Wrote chunk: %s", name)
+        log.debug("Length: %d", int(length / 4))
 
     def dsgx_string(self, str):
         if str == None:
@@ -77,9 +80,9 @@ class Writer:
         #data is different from the previous polygon
         if face.material != self.current_material:
             self.current_material = face.material
-            print("Switching to mtl: " + face.material)
+            log.debug("Switching to mtl: %s", face.material)
             if model.materials[self.current_material].texture != None:
-                print("Material has texture! Writing texture info out now.")
+                log.debug("Material has texture! Writing texture info out now.")
                 texture_name = model.materials[self.current_material].texture
                 if not texture_name in self.texture_offsets:
                     self.texture_offsets[texture_name] = []
@@ -90,7 +93,7 @@ class Writer:
 
                 
             else:
-                print("Material has no texture; outputting dummy teximage to clear state")
+                log.debug("Material has no texture; outputting dummy teximage to clear state")
                 gx.teximage_param(0, 0, 0, 0)
 
             #polygon attributes for this material
@@ -99,15 +102,15 @@ class Writer:
                 gx.polygon_attr(light0=1, light1=1)
                 pass
             else:
-                print("Encountered special case material!")
+                log.debug("Encountered special case material!")
                 polygon_alpha = 31
                 if "alpha" in flags:
                     polygon_alpha = int(flags["alpha"])
-                    print("Custom alpha: ", polygon_alpha)
+                    log.debug("Custom alpha: %d", polygon_alpha)
                 poly_id = 0
                 if "id" in flags:
                     poly_id = int(flags["id"])
-                    print("Custom ID: ", poly_id)
+                    log.debug("Custom ID: %d", poly_id)
                 gx.polygon_attr(light0=1, light1=1, alpha=polygon_alpha, polygon_id=poly_id)
 
 
@@ -139,7 +142,7 @@ class Writer:
         # point normal
         p_normal = model.point_normal(point)
         if p_normal == None:
-            print("Problem: no normal for this point!", face.vertecies)
+            log.warn("Problem: no normal for this point!", face.vertecies)
         else:
             gx.normal(
                 p_normal[0],
@@ -199,8 +202,8 @@ class Writer:
             gx.mtx_scale(1 / self.scale_factor, 1 / self.scale_factor, 
                     1 / self.scale_factor)
 
-        print("model.global_matrix")
-        print(model.global_matrix)
+        log.debug("model.global_matrix")
+        log.debug(model.global_matrix)
 
         #process faces that all belong to one vertex group (simple case)
         for group in model.groups:
@@ -280,7 +283,7 @@ class Writer:
             gx.pop() # mtx scale
 
         #debug: write out the cycle count for the dsgx file
-        print("Cycles to Draw: ", gx.cycles)
+        log.info("Cycles to Draw: %d", gx.cycles)
 
 
         fp = open(filename, "wb")
@@ -291,11 +294,11 @@ class Writer:
         bsph = bytes()
         sphere = model.bounding_sphere()
         bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].z), toFixed(sphere[0].y * -1), toFixed(sphere[1]))
-        print("Bounding Sphere:")
-        print("X: ", sphere[0].x)
-        print("Y: ", sphere[0].y)
-        print("Z: ", sphere[0].z)
-        print("Radius: ", sphere[1])
+        log.info("Bounding Sphere:")
+        log.info("X: %f", sphere[0].x)
+        log.info("Y: %f", sphere[0].y)
+        log.info("Z: %f", sphere[0].z)
+        log.info("Radius: %f", sphere[1])
         
         self.write_chunk(fp, "BSPH", bsph)
 
@@ -311,8 +314,8 @@ class Writer:
                 bone += struct.pack("<I", len(self.group_offsets[group])) #number of copies of this matrix in the dsgx file
 
                 #debug
-                print("Writing bone data for:  ", group)
-                print("Number of offsets: ", len(self.group_offsets[group]))
+                log.debug("Writing bone data for: %s", group)
+                log.debug("Number of offsets: %d", len(self.group_offsets[group]))
 
                 for offset in self.group_offsets[group]:
                     bone += struct.pack("<I", offset)
@@ -323,15 +326,15 @@ class Writer:
         #texparam offsets for each texture
         txtr = bytes()
         txtr += struct.pack("<I", len(self.texture_offsets))
-        print("Total number of textures: ", len(self.texture_offsets))
+        log.debug("Total number of textures: %d", len(self.texture_offsets))
         for texture in sorted(self.texture_offsets):
             txtr += self.dsgx_string(texture) #name of this texture
 
             txtr += struct.pack("<I", len(self.texture_offsets[texture])) #number of references to this texture in the dsgx file
 
             #debug!
-            print("Writing texture data for: ", texture)
-            print("Number of references: ", len(self.texture_offsets[texture]))
+            log.debug("Writing texture data for: %s", texture)
+            log.debug("Number of references: %d", len(self.texture_offsets[texture]))
 
             for offset in self.texture_offsets[texture]:
                 txtr += struct.pack("<I", offset)
@@ -342,8 +345,8 @@ class Writer:
             bani = bytes()
             bani += self.dsgx_string(animation)
             bani += struct.pack("<I", model.animations[animation].length)
-            print("Writing animation data: ", animation)
-            print("Length in frames: ", model.animations[animation].length)
+            log.debug("Writing animation data: %s", animation)
+            log.debug("Length in frames: %d", model.animations[animation].length)
             #here, we output bone data per frame of the animation, making
             #sure to use the same bone order as the BONE chunk
             for frame in range(model.animations[animation].length):

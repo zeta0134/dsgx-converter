@@ -16,20 +16,23 @@ Options:
     --vtx10         Output 10-bit vertex coordinates (default is 16-bit)
 
 """
+import logging
+logging.basicConfig(level=logging.WARN)
+log = logging.getLogger(__name__)
+
 import os, sys
 from model import dsgx, fbx_importer, obj_importer
 from docopt import docopt
 
 def main(args):
     arguments = docopt(__doc__, version="0.1a")
-    print(arguments)
 
     input_filename = arguments["<input_filename>"]
     output_filename = determine_output_filename(input_filename, arguments)
 
     if not known_file_type(input_filename):
-        error_exit(1,
-            "Unrecognized file type: " + file_extension(input_filename))
+        log.error("Unrecognized file type: " + file_extension(input_filename))
+        error_exit(1)
 
     model_to_convert = load_model(input_filename)
     display_model_info(model_to_convert)
@@ -58,30 +61,29 @@ def load_model(filename):
     return _readers[file_extension(filename)](filename)
 
 def display_model_info(model):
-    print("Polygons: %d" % len(model.polygons))
-    print("Vertecies: %d" % len(model.vertecies))
+    log.info("Polygons: %d" % len(model.polygons))
+    log.info("Vertecies: %d" % len(model.vertecies))
 
     textured_polygons = sum(1 for polygon in model.polygons if polygon.uvlist)
-    print("Textured Polygons: %d" % textured_polygons)
+    log.info("Textured Polygons: %d" % textured_polygons)
 
-    print("Bounding Sphere: %s" % str(model.bounding_sphere()))
-    print("Bounding Box: %s" % str(model.bounding_box()))
+    log.info("Bounding Sphere: %s" % str(model.bounding_sphere()))
+    log.info("Bounding Box: %s" % str(model.bounding_box()))
 
-    print("Worst-case Draw Cost (polygons): %d" % model.max_cull_polys())
+    log.info("Worst-case Draw Cost (polygons): %d" % model.max_cull_polys())
 
 def save_model_as_dsgx(model, filename, arguments):
-    print("Attempting output...")
+    log.debug("Attempting output...")
     dsgx.Writer().write(filename, model, arguments["--vtx10"])
-    print("Output Successful!")
+    log.debug("Output Successful!")
 
 def read_autodesk_fbx(filename):
-    print("--Parsing FBX file--")
+    log.debug("--Parsing FBX file--")
     model = fbx_importer.Reader().read(filename)
-    print("Not fully implemented! PANIC!")
     return model
 
 def read_wavefront_obj(filename):
-    print("---Parsing OBJ file---")
+    log.debug("---Parsing OBJ file---")
     return obj_importer.Reader().read(filename)
 
 _readers = {

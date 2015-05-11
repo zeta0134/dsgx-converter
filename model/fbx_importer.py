@@ -5,6 +5,9 @@ from PIL import Image
 
 from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime, FbxAMatrix, FbxTexture, FbxLayerElement
 
+import logging
+log = logging.getLogger(__name__)
+
 def fbx_to_euclid(input_matrix):
     return euclid.Matrix4.new(
         input_matrix.Get(0,0),input_matrix.Get(1,0),input_matrix.Get(2,0),input_matrix.Get(3,0),
@@ -45,7 +48,7 @@ class Reader:
                 # loop over every point this bone controlls
                 for j in range(cluster.GetControlPointIndicesCount()):
                     if object.vertecies[cluster.GetControlPointIndices()[j]].group != "default":
-                        print("Oh no! Multiple bones affect the same vertex. Bad things!!")
+                        log.warn("Oh no! Multiple bones affect the same vertex. Bad things!!")
                     object.vertecies[cluster.GetControlPointIndices()[j]].setGroup(cluster.GetLink().GetName())
 
     def process_materials(self, object, fbx_mesh):
@@ -62,15 +65,16 @@ class Reader:
                     texture_height = 1
                     if material.Diffuse.GetSrcObjectCount(FbxTexture.ClassId) > 0:
                         texture = material.Diffuse.GetSrcObject(FbxTexture.ClassId,0)
+                        log.debug("Texture original path/name: %s", texture_name)
                         texture_name = os.path.basename(texture.GetFileName())
                         texture_name = os.path.splitext(texture_name)[0]
-                        print("Found texture: ", texture_name)
+                        log.debug("Found texture: %s", texture_name)
                         try:
                             image = Image.open(texture.GetFileName())
                             texture_width = image.size[0]
                             texture_height = image.size[1]
                         except:
-                            print("Could not load texture file: ", texture.GetFileName())
+                            log.warn("Could not load texture file: %s", texture.GetFileName())
 
 
 
@@ -95,8 +99,8 @@ class Reader:
     #offset the vertex count somehow when coding in polygons.
     def process_mesh(self, object, mesh):
         # Import polygon and vertex data.
-        print("Polygons: ", mesh.GetPolygonCount())
-        print("Verticies: ", len(mesh.GetControlPoints()))
+        log.debug("Polygons: %d", mesh.GetPolygonCount())
+        log.debug("Verticies: %d", len(mesh.GetControlPoints()))
 
         #this list contains all the points in the model; polygons will
         #index into this list
@@ -110,8 +114,8 @@ class Reader:
         self.process_materials(object, mesh)
         material_map = mesh.GetLayer(0).GetMaterials().GetIndexArray()
 
-        print("Mesh Global Transform:")
-        print(fbx_to_euclid(mesh.GetNode().EvaluateGlobalTransform()))
+        log.debug("Mesh Global Transform:")
+        log.debug(fbx_to_euclid(mesh.GetNode().EvaluateGlobalTransform()))
         #exit()
         #well ... that explains a lot.
         self.mesh_global = fbx_to_euclid(mesh.GetNode().EvaluateGlobalTransform())
@@ -140,7 +144,7 @@ class Reader:
                         uv_data = mesh.GetLayer(l).GetUVs()
                         if uv_data:
                             if uv_data.GetMappingMode() == FbxLayerElement.eByControlPoint:
-                                print("eByControlPoint not supported for UVs!")
+                                log.warn("eByControlPoint not supported for UVs!")
                             elif uv_data.GetMappingMode() ==  FbxLayerElement.eByPolygonVertex:
                                 uv_index = mesh.GetTextureUVIndex(face, v)
                                 uv = uv_data.GetDirectArray().GetAt(uv_index)
@@ -162,7 +166,7 @@ class Reader:
 
     def process_node(self, object, node):
         if node.GetNodeAttribute() == None:
-            print("NULL Node Attribute: ", node.GetName())
+            log.debug("NULL Node Attribute: %s", node.GetName())
         else:
             attribute = node.GetNodeAttribute()
             attribute_type = attribute.GetAttributeType()
@@ -209,8 +213,8 @@ class Reader:
 
         for i in range(scene.GetSrcObjectCount(FbxAnimStack.ClassId)):
             animation_stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
-            print("Animation: ", animation_stack.GetName())
-            print("Length: ", animation_stack.LocalStop.Get().GetFrameCount())
+            log.debug("Animation: %s", animation_stack.GetName())
+            log.debug("Length: %d", animation_stack.LocalStop.Get().GetFrameCount())
 
             #evaluator.SetContext(animation_stack)
             scene.SetCurrentAnimationStack(animation_stack)
@@ -234,7 +238,7 @@ class Reader:
         #first, make sure we can open the file
         SdkManager, scene = InitializeSdkObjects()
         if not LoadScene(SdkManager, scene, filename):
-            print("Could not parse " + filename + " as .fbx, bailing.")
+            log.error("Could not parse %s as .fbx, bailing.", filename)
             return
         else:
             object = Model()

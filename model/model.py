@@ -1,5 +1,8 @@
 import euclid3 as euclid
 
+import logging
+log = logging.getLogger(__name__)
+
 class Model:
     def __init__(self):
         self.polygons = []
@@ -64,7 +67,7 @@ class Model:
         
         def addNode(self, node_name, transform_list):
             #node_name = "Armature|"+node_name
-            print("Added animation node: ", node_name)
+            log.debug("Added animation node: %s", node_name)
             self.nodes[node_name] = transform_list
 
         def getTransform(self, node_name, frame):
@@ -96,17 +99,17 @@ class Model:
         #if this is a 2-point polygon, turn it into a triangle; this will draw
         #on hardware as a perfect line segment
         if abs(self.vertecies[vertex_list[0]].location - self.vertecies[vertex_list[1]].location) < 0.01:
-            print("Encountered LINE SEGMENT variant 1")
+            log.debug("Encountered LINE SEGMENT variant 1")
             vertex_list = [vertex_list[0], vertex_list[2], vertex_list[2]]
             vertex_normals = [vertex_normals[0], vertex_normals[2], vertex_normals[2]]
             face_normal = euclid.Vector3(vertex_normals[0][0],vertex_normals[0][1],vertex_normals[0][2]) #pick one at random
         elif abs(self.vertecies[vertex_list[1]].location - self.vertecies[vertex_list[2]].location) < 0.01:
-            print("Encountered LINE SEGMENT variant 2")
+            log.debug("Encountered LINE SEGMENT variant 2")
             vertex_list = [vertex_list[0], vertex_list[1], vertex_list[1]]
             vertex_normals = [vertex_normals[0], vertex_normals[1], vertex_normals[1]]
             face_normal = euclid.Vector3(vertex_normals[0][0],vertex_normals[0][1],vertex_normals[0][2])
         elif abs(self.vertecies[vertex_list[2]].location - self.vertecies[vertex_list[0]].location) < 0.01:
-            print("Encountered LINE SEGMENT variant 3")
+            log.debug("Encountered LINE SEGMENT variant 3")
             vertex_list = [vertex_list[0], vertex_list[1], vertex_list[1]]
             vertex_normals = [vertex_normals[0], vertex_normals[1], vertex_normals[1]]
             face_normal = euclid.Vector3(vertex_normals[0][0],vertex_normals[0][1],vertex_normals[0][2])
