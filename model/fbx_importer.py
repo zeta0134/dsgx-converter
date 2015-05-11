@@ -6,7 +6,7 @@ from PIL import Image
 from FbxCommon import InitializeSdkObjects, LoadScene, FbxNodeAttribute, FbxSurfacePhong, FbxAnimStack, FbxTime, FbxAMatrix, FbxTexture, FbxLayerElement
 
 import logging
-log = logging.getLogger(__name__)
+log = logging.getLogger()
 
 def fbx_to_euclid(input_matrix):
     return euclid.Matrix4.new(

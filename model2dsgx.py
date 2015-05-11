@@ -13,19 +13,23 @@ Usage:
 Options:
     -h --help       Print this message and exit
     -v --version    Show version number and exit
+    --debug         Display debugging info
+    --quiet         Silence all but Warnings and Errors
     --vtx10         Output 10-bit vertex coordinates (default is 16-bit)
 
 """
+from docopt import docopt
 import logging
-logging.basicConfig(level=logging.WARN)
-log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger()
 
 import os, sys
 from model import dsgx, fbx_importer, obj_importer
-from docopt import docopt
+
 
 def main(args):
     arguments = docopt(__doc__, version="0.1a")
+    adjust_logging_level(arguments)
 
     input_filename = arguments["<input_filename>"]
     output_filename = determine_output_filename(input_filename, arguments)
@@ -37,6 +41,14 @@ def main(args):
     model_to_convert = load_model(input_filename)
     display_model_info(model_to_convert)
     save_model_as_dsgx(model_to_convert, output_filename, arguments)
+
+def adjust_logging_level(arguments):
+    if arguments["--debug"]:
+        log.setLevel(logging.DEBUG)
+    elif arguments["--quiet"]:
+        log.setLevel(logging.WARN)
+    else:
+        log.setLevel(logging.INFO)
 
 def determine_output_filename(input_filename, args):
     if "<output_filename>" in args:

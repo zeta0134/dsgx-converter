@@ -7,7 +7,7 @@ import struct # , model
 # deformation.
 
 import logging
-log = logging.getLogger(__name__)
+log = logging.getLogger()
 
 def toFixed(float_value, fraction=12):
         return int(float_value * pow(2,fraction))
