@@ -305,7 +305,7 @@ class Writer:
         self.write_chunk(fp, "BSPH", bsph)
 
         #output the cull-cost for the object
-        self.write_chunk(fp, "COST", struct.pack("<I", model.max_cull_polys()))
+        self.write_chunk(fp, "COST", struct.pack("<II", model.max_cull_polys(), gx.cycles))
 
         #matrix offsets for each bone
         bone = bytes()
