@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
 
 import os, sys
-from model import dsgx, fbx_importer, obj_importer
+from model import dsgx, fbx_importer, obj_importer, assimp_importer
 
 
 def main(args):
@@ -33,10 +33,6 @@ def main(args):
 
     input_filename = arguments["<input_filename>"]
     output_filename = determine_output_filename(input_filename, arguments)
-
-    if not known_file_type(input_filename):
-        log.error("Unrecognized file type: " + file_extension(input_filename))
-        error_exit(1)
 
     model_to_convert = load_model(input_filename)
     display_model_info(model_to_convert)
@@ -70,7 +66,10 @@ def file_extension(filename):
     return os.path.splitext(filename)[1]
 
 def load_model(filename):
-    return _readers[file_extension(filename)](filename)
+    if known_file_type(filename):
+        return _readers[file_extension(filename)](filename)
+    else:
+        return read_using_assimp(filename)
 
 def display_model_info(model):
     log.info("Polygons: %d" % len(model.polygons))
@@ -97,6 +96,10 @@ def read_autodesk_fbx(filename):
 def read_wavefront_obj(filename):
     log.debug("---Parsing OBJ file---")
     return obj_importer.Reader().read(filename)
+
+def read_using_assimp(filename):
+    log.debug("---Falling back to ASSIMP---")
+    return assimp_importer.Reader().read(filename)
 
 _readers = {
     ".fbx": read_autodesk_fbx,

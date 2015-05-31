@@ -90,7 +90,9 @@ class Writer:
 
                 size = model.materials[self.current_material].texture_size
                 gx.teximage_param(256 * 1024, size[0], size[1], 7)
-
+                gx.texpllt_base(0, 0) # 0 for the offset and format; this will 
+                                      # be filled in by the engine during asset
+                                      # loading.
                 
             else:
                 log.debug("Material has no texture; outputting dummy teximage to clear state")
@@ -619,4 +621,15 @@ class Emitter:
             ((transform_mode & 0x3) << 30))
         self.command(0x2A, [
             struct.pack("<I",attr)])
+        self.cycles += 1
+
+
+    def texpllt_base(self, offset, texture_format):
+        if texture_format == 2: # 4-color palette
+            offset = offset >> 8
+        else:
+            offset = offset >> 16
+
+        self.command(0x2B, [
+            struct.pack("<I", (offset & 0xFFF))])
         self.cycles += 1
