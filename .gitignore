@@ -56,7 +56,10 @@ docs/_build/
 *.obj
 *.dsgx
 *.fbx
-olimar.fbx
+*.fbx
+*.blend
 *.3ds
 *.stl
 *.x3d
+
+debug.sh

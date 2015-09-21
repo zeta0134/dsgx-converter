@@ -65,7 +65,7 @@ class Reader:
                     texture_height = 1
                     if material.Diffuse.GetSrcObjectCount(FbxTexture.ClassId) > 0:
                         texture = material.Diffuse.GetSrcObject(FbxTexture.ClassId,0)
-                        log.debug("Texture original path/name: %s", texture_name)
+                        log.debug("Texture original path/name: %s", texture.GetFileName())
                         texture_name = os.path.basename(texture.GetFileName())
                         texture_name = os.path.splitext(texture_name)[0]
                         log.debug("Found texture: %s", texture_name)
@@ -80,17 +80,17 @@ class Reader:
 
                     #print("Is phong!")
                     #this is a valid enough material to add, so do it!
-                    object.addMaterial(material.GetName(), 
-                        {"r": material.Ambient.Get()[0], 
-                         "g": material.Ambient.Get()[1], 
+                    object.addMaterial(material.GetName(),
+                        {"r": material.Ambient.Get()[0],
+                         "g": material.Ambient.Get()[1],
                          "b": material.Ambient.Get()[2]},
 
-                        {"r": material.Specular.Get()[0], 
-                         "g": material.Specular.Get()[1], 
+                        {"r": material.Specular.Get()[0],
+                         "g": material.Specular.Get()[1],
                          "b": material.Specular.Get()[2]},
 
-                        {"r": material.Diffuse.Get()[0], 
-                         "g": material.Diffuse.Get()[1], 
+                        {"r": material.Diffuse.Get()[0],
+                         "g": material.Diffuse.Get()[1],
                          "b": material.Diffuse.Get()[2]},
                          texture_name, texture_width, texture_height)
 
@@ -198,10 +198,10 @@ class Reader:
         #animation_transform = self.cluster_transforms[bone.GetNode().GetName()].inverse() * animation_transform
         #animation_transform = animation_transform.identity()
         #return euclid.Matrix4()
-        
+
         #print(bone.GetNode().GetName())
         return bind_pose_inverse * animation_transform
-        
+
         #return self.mesh_global * animation_transform * bind_pose.inverse() * self.mesh_global.inverse()
 
         #return animation_transform.inverse()
@@ -252,4 +252,3 @@ class Reader:
             self.process_animation(object, scene)
 
             return object
-
