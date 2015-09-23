@@ -103,7 +103,7 @@ def read_using_assimp(filename):
 
 _readers = {
     ".fbx": read_autodesk_fbx,
-    ".obj": read_wavefront_obj
+    ".obj": read_wavefront_obj,
 }
 
 if __name__ == '__main__':
