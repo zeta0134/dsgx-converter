@@ -167,20 +167,15 @@ class Writer:
             )
 
     def determineScaleFactor(self, model):
-        self.scale_factor = 1.0
+        scale_factor = 1.0
         bb = model.bounding_box()
         largest_coordinate = max(abs(bb["wx"]), abs(bb["wy"]), abs(bb["wz"]))
 
         if largest_coordinate > 7.9:
-            self.scale_factor = 7.9 / largest_coordinate
+            scale_factor = 7.9 / largest_coordinate
+        return scale_factor
 
-    def write(self, filename, model, vtx10=False):
-        gx = Emitter()
-
-        # basically, for each face given, output the appropriate
-        # type of polygon. We loop twice, once for triangles, once
-        # for quads. (ignore every other type)
-
+    def setup_sane_defaults(self, gx):
         # todo: figure out light offsets, if we ever want to have
         # dynamic scene lights and stuff with vertex colors
         gx.color(64, 64, 64, True) #use256 mode
@@ -194,20 +189,13 @@ class Writer:
             True           # use256
         )
 
-        self.current_material = None
-        self.group_offsets = {}
-        self.texture_offsets = {}
+    def start_polygon_list(self, gx, points_per_polygon):
+        if (points_per_polygon == 3):
+            gx.begin_vtxs(gx.vtxs_triangle)
+        if (points_per_polygon == 4):
+            gx.begin_vtxs(gx.vtxs_quad)
 
-        self.determineScaleFactor(model)
-
-        if self.scale_factor != 1.0:
-            gx.push()
-            gx.mtx_scale(1 / self.scale_factor, 1 / self.scale_factor,
-                    1 / self.scale_factor)
-
-        log.debug("model.global_matrix")
-        log.debug(model.global_matrix)
-
+    def process_monogroup_faces(self, gx, model, vtx10=False):
         #process faces that all belong to one vertex group (simple case)
         for group in model.groups:
             gx.push()
@@ -220,81 +208,58 @@ class Writer:
 
             #emit a default matrix for this group; this makes the T-pose work
             #if no animation is selected
-            gx.mtx_mult_4x4(model.global_matrix)
+            gx.mtx_mult_4x4(euclid.Matrix4())
 
             for polytype in range(3,5):
-                if (polytype == 3):
-                    gx.begin_vtxs(gx.vtxs_triangle)
-                if (polytype == 4):
-                    gx.begin_vtxs(gx.vtxs_quad)
+                self.start_polygon_list(gx, polytype)
 
                 for face in model.ActiveMesh().polygons:
-                    if face.vertexGroup() == group and not face.isMixed():
-                        if len(face.vertices) == polytype:
-                            if self.face_attributes(gx, face, model):
-                                #on material edges, we need to start a new list
-                                if (polytype == 3):
-                                    gx.begin_vtxs(gx.vtxs_triangle)
-                                if (polytype == 4):
-                                    gx.begin_vtxs(gx.vtxs_quad)
-                            for p in range(len(face.vertices)):
-                                # uv coordinate
-                                if model.materials[self.current_material].texture:
-                                    #print(p)
-                                    #two things here:
-                                    #1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
-                                    #   we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
-                                    #2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
-                                    #   expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
-                                    size = model.materials[self.current_material].texture_size
-                                    gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                                    #print("Emitted UV coord: ", face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                                self.output_vertex(gx, face.vertices[p], model, vtx10)
-
+                    if (face.vertexGroup() == group and not face.isMixed() and
+                            len(face.vertices) == polytype):
+                        if self.face_attributes(gx, face, model):
+                            # on material edges, we need to start a new list
+                            self.start_polygon_list(gx, polytype)
+                        for p in range(len(face.vertices)):
+                            # uv coordinate
+                            if model.materials[self.current_material].texture:
+                                # two things here:
+                                # 1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
+                                #    we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
+                                # 2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
+                                #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
+                                size = model.materials[self.current_material].texture_size
+                                gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
+                            self.output_vertex(gx, face.vertices[p], model, vtx10)
             gx.pop()
 
-        #now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
+    def process_polygroup_faces(self, gx, model, vtx10=False):
+        # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
         for polytype in range(3,5):
-            if (polytype == 3):
-                gx.begin_vtxs(gx.vtxs_triangle)
-            if (polytype == 4):
-                gx.begin_vtxs(gx.vtxs_quad)
+            self.start_polygon_list(gx, polytype)
 
             for face in model.ActiveMesh().polygons:
-                if len(face.vertices) == polytype:
-                    if face.isMixed():
-                        if self.face_attributes(gx, face, model):
-                            #on material edges, we need to start a new list
-                                if (polytype == 3):
-                                    gx.begin_vtxs(gx.vtxs_triangle)
-                                if (polytype == 4):
-                                    gx.begin_vtxs(gx.vtxs_quad)
-                        for point in face.vertices:
-                            gx.push()
+                if len(face.vertices) == polytype and face.isMixed():
+                    if self.face_attributes(gx, face, model):
+                        # on material edges, we need to start a new list
+                        self.start_polygon_list(gx, polytype)
+                    for point in face.vertices:
+                        gx.push()
 
-                            #store this transformation offset for later
-                            group = model.ActiveMesh().vertices[point].group
-                            if not group in self.group_offsets:
-                                self.group_offsets[group] = []
-                            self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+                        # store this transformation offset for later
+                        group = model.ActiveMesh().vertices[point].group
+                        if not group in self.group_offsets:
+                            self.group_offsets[group] = []
+                        # skip over the command itself; we need a reference to
+                        # the parameters
+                        self.group_offsets[group].append(gx.offset + 1)
 
-                            gx.mtx_mult_4x4(model.global_matrix)
-                            self.output_vertex(gx, point, model, vtx10)
-                            gx.pop()
+                        gx.mtx_mult_4x4(euclid.Matrix4())
+                        self.output_vertex(gx, point, model, vtx10)
+                        gx.pop()
 
-        if self.scale_factor != 1.0:
-            gx.pop() # mtx scale
-
-        #debug: write out the cycle count for the dsgx file
-        log.info("Cycles to Draw: %d", gx.cycles)
-
-
-        fp = open(filename, "wb")
-        #first things first, output the main data
-        self.write_chunk(fp, "DSGX", gx.write())
-
-        #then, output the bounding sphere data (needed for multipass stuffs)
+    def output_active_bounding_sphere(self, fp, model):
         bsph = bytes()
+        bsph += self.dsgx_string(model.active_mesh)
         sphere = model.bounding_sphere()
         bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].z), toFixed(sphere[0].y * -1), toFixed(sphere[1]))
         log.info("Bounding Sphere:")
@@ -302,32 +267,77 @@ class Writer:
         log.info("Y: %f", sphere[0].y)
         log.info("Z: %f", sphere[0].z)
         log.info("Radius: %f", sphere[1])
-
         self.write_chunk(fp, "BSPH", bsph)
 
-        #output the cull-cost for the object
-        self.write_chunk(fp, "COST", struct.pack("<II", model.max_cull_polys(), gx.cycles))
+    def output_active_mesh(self, fp, model, vtx10=False):
+        gx = Emitter()
 
+        self.setup_sane_defaults(gx)
+
+        self.current_material = None
+        self.group_offsets = {}
+        self.texture_offsets = {}
+
+        self.scale_factor = self.determineScaleFactor(model)
+
+        gx.push()
+        if self.scale_factor != 1.0:
+            inverse_scale = 1 / self.scale_factor
+            scale_matrix = euclid.Matrix4()
+            scale_matrix.scale(inverse_scale, inverse_scale, inverse_scale)
+            gx.mtx_mult_4x4(model.global_matrix * scale_matrix)
+        else:
+            gx.mtx_mult_4x4(model.global_matrix)
+        log.info("Global Matrix: ")
+        log.info(model.global_matrix)
+
+
+        self.process_monogroup_faces(gx, model, vtx10)
+        self.process_polygroup_faces(gx, model, vtx10)
+
+        gx.pop() # mtx scale
+
+        self.write_chunk(fp, "DSGX", self.dsgx_string(model.active_mesh) + gx.write())
+        self.output_active_bounding_sphere(fp, model)
+
+        #output the cull-cost for the object
+        log.info("Cycles to Draw %s: %d", model.active_mesh, gx.cycles)
+        self.write_chunk(fp, "COST", self.dsgx_string(model.active_mesh) +
+                struct.pack("<II", model.max_cull_polys(), gx.cycles))
+
+    def output_active_bones(self, fp, model):
+        if not model.animations:
+            return
         #matrix offsets for each bone
         bone = bytes()
-        bone += struct.pack("<I", len(self.group_offsets)) #number of bones in the file
-        for group in sorted(self.group_offsets):
-            if group != "default":
-                bone += self.dsgx_string(group) #name of this bone
-                bone += struct.pack("<I", len(self.group_offsets[group])) #number of copies of this matrix in the dsgx file
+        bone += self.dsgx_string(model.active_mesh)
+        some_animation = model.animations[next(iter(model.animations.keys()))]
+        bone += struct.pack("<I", len(some_animation.nodes.keys())) #number of bones in the file
+        for node_name in sorted(some_animation.nodes.keys()):
+            if node_name != "default":
+                bone += self.dsgx_string(node_name) #name of this bone
+                if node_name in self.group_offsets:
+                    bone += struct.pack("<I", len(self.group_offsets[node_name])) #number of copies of this matrix in the dsgx file
 
-                #debug
-                log.debug("Writing bone data for: %s", group)
-                log.debug("Number of offsets: %d", len(self.group_offsets[group]))
+                    #debug
+                    log.debug("Writing bone data for: %s", node_name)
+                    log.debug("Number of offsets: %d", len(self.group_offsets[node_name]))
 
-                for offset in self.group_offsets[group]:
-                    bone += struct.pack("<I", offset)
-                    #print(offset, " ", end="")
-                #print("")
+                    for offset in self.group_offsets[node_name]:
+                        log.debug("Offset: %d", offset)
+                        bone += struct.pack("<I", offset)
+                else:
+                    # We need to output a length of 0, so this bone is simply
+                    # passed over
+                    log.debug("Skipping bone data for: %s", node_name)
+                    log.debug("Number of offsets: 0")
+                    bone += struct.pack("<I", 0)
         self.write_chunk(fp, "BONE", bone)
 
+    def output_active_textures(self, fp, model):
         #texparam offsets for each texture
         txtr = bytes()
+        txtr += self.dsgx_string(model.active_mesh)
         txtr += struct.pack("<I", len(self.texture_offsets))
         log.debug("Total number of textures: %d", len(self.texture_offsets))
         for texture in sorted(self.texture_offsets):
@@ -343,6 +353,7 @@ class Writer:
                 txtr += struct.pack("<I", offset)
         self.write_chunk(fp, "TXTR", txtr)
 
+    def output_animations(self, fp, model):
         #animation data!
         for animation in model.animations:
             bani = bytes()
@@ -352,16 +363,32 @@ class Writer:
             log.debug("Length in frames: %d", model.animations[animation].length)
             #here, we output bone data per frame of the animation, making
             #sure to use the same bone order as the BONE chunk
+            count = 0
             for frame in range(model.animations[animation].length):
-                for group in sorted(self.group_offsets):
-                    if group != "default":
-                        matrix = model.animations[animation].getTransform(group, frame)
+                for node_name in sorted(model.animations[animation].nodes.keys()):
+                    if node_name != "default":
+                        if frame == 1:
+                            log.debug("Writing node: %s", node_name)
+                        matrix = model.animations[animation].getTransform(node_name, frame)
                         #hoo boy
                         bani += struct.pack("<iiii", toFixed(matrix.a), toFixed(matrix.b), toFixed(matrix.c), toFixed(matrix.d))
                         bani += struct.pack("<iiii", toFixed(matrix.e), toFixed(matrix.f), toFixed(matrix.g), toFixed(matrix.h))
                         bani += struct.pack("<iiii", toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l))
                         bani += struct.pack("<iiii", toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p))
+                        count = count + 1
             self.write_chunk(fp, "BANI", bani)
+            log.debug("Wrote %d matricies", count)
+
+    def write(self, filename, model, vtx10=False):
+        fp = open(filename, "wb")
+        #first things first, output the main data
+        for mesh_name in model.meshes:
+            model.active_mesh = mesh_name
+            self.output_active_mesh(fp, model, vtx10)
+            self.output_active_bones(fp, model)
+            self.output_active_textures(fp, model)
+
+        self.output_animations(fp, model)
 
         fp.close()
 
