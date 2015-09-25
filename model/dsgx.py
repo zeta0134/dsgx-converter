@@ -122,12 +122,27 @@ class Writer:
                     model.materials[face.material].diffuse[1] * 255,
                     model.materials[face.material].diffuse[2] * 255), #diffuse
                 (
-                    model.materials[face.material].ambient[0] *  model.materials[face.material].diffuse[0] * 255,
-                    model.materials[face.material].ambient[1] *  model.materials[face.material].diffuse[1] * 255,
-                    model.materials[face.material].ambient[2] *  model.materials[face.material].diffuse[2] * 255), #ambient fanciness
+                    model.materials[face.material].ambient[0] * 255,
+                    model.materials[face.material].ambient[1] * 255,
+                    model.materials[face.material].ambient[2] * 255), #ambient
                 False, #setVertexColor (not sure)
                 True # use256
             )
+
+            gx.spe_emi(
+                (
+                    model.materials[face.material].specular[0] * 255,
+                    model.materials[face.material].specular[1] * 255,
+                    model.materials[face.material].specular[2] * 255), #specular
+                (
+                    model.materials[face.material].emit[0] * 255,
+                    model.materials[face.material].emit[1] * 255,
+                    model.materials[face.material].emit[2] * 255), #emit
+                False, #useSpecularTable
+                True # use256
+            )
+
+
 
             shading = "smooth"
             if shading == "flat":
@@ -140,16 +155,16 @@ class Writer:
             return True
         return False
 
-    def output_vertex(self, gx, point, model, vtx10=False):
+    def output_vertex(self, gx, point, normal, model, vtx10=False):
         # point normal
-        p_normal = model.ActiveMesh().point_normal(point)
-        if p_normal == None:
+        # p_normal = model.ActiveMesh().point_normal(point)
+        if normal == None:
             log.warn("Problem: no normal for this point!", face.vertices)
         else:
             gx.normal(
-                p_normal[0],
-                p_normal[1],
-                p_normal[2],
+                normal[0],
+                normal[1],
+                normal[2],
             )
         # location
         location = model.ActiveMesh().vertices[point].location
@@ -229,7 +244,7 @@ class Writer:
                                 #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
                                 size = model.materials[self.current_material].texture_size
                                 gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                            self.output_vertex(gx, face.vertices[p], model, vtx10)
+                            self.output_vertex(gx, face.vertices[p], face.vertex_normals[p], model, vtx10)
             gx.pop()
 
     def process_polygroup_faces(self, gx, model, vtx10=False):
@@ -242,11 +257,12 @@ class Writer:
                     if self.face_attributes(gx, face, model):
                         # on material edges, we need to start a new list
                         self.start_polygon_list(gx, polytype)
-                    for point in face.vertices:
+                    for p in range(len(face.vertices)):
+                        point_index = face.vertices[p]
                         gx.push()
 
                         # store this transformation offset for later
-                        group = model.ActiveMesh().vertices[point].group
+                        group = model.ActiveMesh().vertices[point_index].group
                         if not group in self.group_offsets:
                             self.group_offsets[group] = []
                         # skip over the command itself; we need a reference to
@@ -254,7 +270,7 @@ class Writer:
                         self.group_offsets[group].append(gx.offset + 1)
 
                         gx.mtx_mult_4x4(euclid.Matrix4())
-                        self.output_vertex(gx, point, model, vtx10)
+                        self.output_vertex(gx, point_index, face.vertex_normals[p], model, vtx10)
                         gx.pop()
 
     def output_active_bounding_sphere(self, fp, model):
@@ -507,7 +523,7 @@ class Emitter:
     polygon_mode_modulation = 0
     polygon_mode_normal = 0
     polygon_mode_decal = 1
-    polygon_mode_toon = 2
+    polygon_mode_toon_highlight = 2
     polygon_mode_shadow = 3
 
     polygon_depth_less = 0
@@ -588,6 +604,31 @@ class Emitter:
             ((ambient[0] & 0x1F) << 16) +
             ((ambient[1] & 0x1F) << 21) +
             ((ambient[2] & 0x1F) << 26))
+        ])
+        self.cycles += 4
+
+    def spe_emi(self, specular, emit, use_specular_table=True, use256=False):
+        if (use256):
+            # DS colors are in 16bit mode (5 bits per value)
+            specular = (
+                int(specular[0]/8),
+                int(specular[1]/8),
+                int(specular[2]/8),
+            )
+            emit = (
+                int(emit[0]/8),
+                int(emit[1]/8),
+                int(emit[2]/8),
+            )
+        self.command(0x31, [
+            struct.pack("<I",
+            (specular[0] & 0x1F) +
+            ((specular[1] & 0x1F) << 5) +
+            ((specular[2] & 0x1F) << 10) +
+            ((use_specular_table & 0x1) << 15) +
+            ((emit[0] & 0x1F) << 16) +
+            ((emit[1] & 0x1F) << 21) +
+            ((emit[2] & 0x1F) << 26))
         ])
         self.cycles += 4
 

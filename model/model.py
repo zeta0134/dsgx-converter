@@ -136,6 +136,7 @@ class Model:
             self.ambient = (0, 0, 0)
             self.diffuse = (128, 128, 128)
             self.specular = (255, 255, 255)
+            self.emit = (0, 0, 0)
             self.smooth_shading = False
 
     class Animation:
@@ -159,12 +160,13 @@ class Model:
     def getAnimation(self, name):
         return self.animations[name]
 
-    def addMaterial(self, name, ambient, specular, diffuse, texture=None, texwidth=0, texheight=0):
+    def addMaterial(self, name, ambient, specular, diffuse, emit, texture=None, texwidth=0, texheight=0):
         newmtl = self.Material()
         newmtl.ambient = ambient
         newmtl.specular = specular
         newmtl.diffuse = diffuse
         newmtl.texture = texture
+        newmtl.emit = emit
         newmtl.texture_size = (texwidth, texheight)
         self.materials[name] = newmtl
 
