@@ -101,7 +101,7 @@ class Writer:
             #polygon attributes for this material
             flags = self.parse_material_flags(self.current_material)
             if flags == None:
-                gx.polygon_attr(light0=1, light1=1)
+                gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
                 pass
             else:
                 log.debug("Encountered special case material!")
@@ -113,7 +113,7 @@ class Writer:
                 if "id" in flags:
                     poly_id = int(flags["id"])
                     log.debug("Custom ID: %d", poly_id)
-                gx.polygon_attr(light0=1, light1=1, alpha=polygon_alpha, polygon_id=poly_id)
+                gx.polygon_attr(light0=1, light1=1, light2=1, light3=1, alpha=polygon_alpha, polygon_id=poly_id)
 
 
             gx.dif_amb(
@@ -194,7 +194,7 @@ class Writer:
         # todo: figure out light offsets, if we ever want to have
         # dynamic scene lights and stuff with vertex colors
         gx.color(64, 64, 64, True) #use256 mode
-        gx.polygon_attr(light0=1, light1=1)
+        gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
 
         # default material, if no other material gets specified
         gx.dif_amb(
@@ -297,13 +297,12 @@ class Writer:
         self.scale_factor = self.determineScaleFactor(model)
 
         gx.push()
+        gx.mtx_mult_4x4(model.global_matrix)
+
         if self.scale_factor != 1.0:
             inverse_scale = 1 / self.scale_factor
-            scale_matrix = euclid.Matrix4()
-            scale_matrix.scale(inverse_scale, inverse_scale, inverse_scale)
-            gx.mtx_mult_4x4(model.global_matrix * scale_matrix)
-        else:
-            gx.mtx_mult_4x4(model.global_matrix)
+            gx.mtx_scale(inverse_scale, inverse_scale, inverse_scale)
+
         log.info("Global Matrix: ")
         log.info(model.global_matrix)
 
@@ -607,7 +606,7 @@ class Emitter:
         ])
         self.cycles += 4
 
-    def spe_emi(self, specular, emit, use_specular_table=True, use256=False):
+    def spe_emi(self, specular, emit, use_specular_table=False, use256=False):
         if (use256):
             # DS colors are in 16bit mode (5 bits per value)
             specular = (
