@@ -142,30 +142,33 @@ class Writer:
                 True # use256
             )
 
-
-
-            shading = "smooth"
-            if shading == "flat":
-                # handle color
+            if not face.smooth_shading:
                 gx.normal(
                     face.face_normal[0],
                     face.face_normal[1],
                     face.face_normal[2],
                 )
             return True
+        if not face.smooth_shading:
+            gx.normal(
+                face.face_normal[0],
+                face.face_normal[1],
+                face.face_normal[2],
+            )
         return False
 
-    def output_vertex(self, gx, point, normal, model, vtx10=False):
+    def output_vertex(self, gx, point, normal, model, face, vtx10=False):
         # point normal
         # p_normal = model.ActiveMesh().point_normal(point)
-        if normal == None:
-            log.warn("Problem: no normal for this point!", face.vertices)
-        else:
-            gx.normal(
-                normal[0],
-                normal[1],
-                normal[2],
-            )
+        if face.smooth_shading:
+            if normal == None:
+                log.warn("Problem: no normal for this point!", face.vertices)
+            else:
+                gx.normal(
+                    normal[0],
+                    normal[1],
+                    normal[2],
+                )
         # location
         location = model.ActiveMesh().vertices[point].location
         if vtx10:
@@ -244,7 +247,7 @@ class Writer:
                                 #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
                                 size = model.materials[self.current_material].texture_size
                                 gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                            self.output_vertex(gx, face.vertices[p], face.vertex_normals[p], model, vtx10)
+                            self.output_vertex(gx, face.vertices[p], face.vertex_normals[p], model, face, vtx10)
             gx.pop()
 
     def process_polygroup_faces(self, gx, model, vtx10=False):
@@ -270,7 +273,7 @@ class Writer:
                         self.group_offsets[group].append(gx.offset + 1)
 
                         gx.mtx_mult_4x4(euclid.Matrix4())
-                        self.output_vertex(gx, point_index, face.vertex_normals[p], model, vtx10)
+                        self.output_vertex(gx, point_index, face.vertex_normals[p], model, face, vtx10)
                         gx.pop()
 
     def output_active_bounding_sphere(self, fp, model):

@@ -24,7 +24,7 @@ class Model:
             if group not in self.model.groups:
                 self.model.groups.append(group)
 
-        def addPolygon(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None):
+        def addPolygon(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None, smooth=True):
             face_normal = self.face_normal(vertex_list)
 
             #if this is a 2-point polygon, turn it into a triangle; this will draw
@@ -46,7 +46,7 @@ class Model:
                 face_normal = euclid.Vector3(vertex_normals[0][0],vertex_normals[0][1],vertex_normals[0][2])
 
             self.polygons.append(Model.Polygon(vertex_list, uvlist, material,
-                                 face_normal, vertex_normals, self))
+                                 face_normal, vertex_normals, self, smooth))
 
         def face_normal(self, vertex_list):
             # todo: implement different method for handling concave edges
@@ -58,7 +58,7 @@ class Model:
                 v.append(self.vertices[index].location)
 
             a = v[1] - v[0]
-            b = v[1] - v[2]
+            b = v[2] - v[0]
 
             normal = a.cross(b)
             normal.normalize()
@@ -108,7 +108,7 @@ class Model:
 
     class Polygon:
         def __init__(self, vertex_list = None, uvlist = None, material=None,
-                     face_normal=None, vertex_normals=None, model=None):
+                     face_normal=None, vertex_normals=None, model=None, smooth=True):
             if vertex_list is None:
                 self.vertices = []
             else:
@@ -118,6 +118,7 @@ class Model:
             self.face_normal = face_normal
             self.vertex_normals = vertex_normals
             self.model = model
+            self.smooth_shading = smooth
 
         def vertexGroup(self):
             return self.model.vertices[self.vertices[0]].group
@@ -176,8 +177,8 @@ class Model:
     def addVertex(self, location=euclid.Vector3(0.0, 0.0, 0.0), group="default"):
         ActiveMesh().addVertex(location, group)
 
-    def addPolygon(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None):
-        ActiveMesh().addPolygon(vertex_list, uvlist, vertex_normals, material)
+    def addPolygon(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None, smooth=True):
+        ActiveMesh().addPolygon(vertex_list, uvlist, vertex_normals, material, smooth)
 
     def addMesh(self, mesh_name):
         self.meshes[mesh_name] = self.Mesh(self)
