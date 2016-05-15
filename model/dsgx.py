@@ -12,150 +12,139 @@ log = logging.getLogger()
 def toFixed(float_value, fraction=12):
         return int(float_value * pow(2,fraction))
 
+def add_chunk_header(name, data):
+    assert(len(name) == 4, "Cannot write chunk: %s, wrong size for header!" % name)
+    name = [c.encode('ascii') for c in name]
+
+    chunk = []
+
+    #write the name as a non-null terminated 4-byte sequence
+    chunk.append(struct.pack("<cccc", name[0], name[1], name[2], name[3]))
+
+    #write out the length of data, in WORDS. (4-bytes per word)
+    length = len(data)
+    padding = 0
+    if length % 4 != 0:
+        padding = 4 - (length % 4)
+        length = length + padding
+    chunk.append(struct.pack("<I", int(length / 4)))
+
+    #write out the chunk data
+    chunk.append(data)
+
+    # write out any padding bytes needed to word-align this data
+    chunk.append(struct.pack("<" + "x" * padding))
+
+    log.debug("Generated Chunk: %s", name)
+    log.debug("Length: %d", int(length / 4))
+
+    return b"".join(chunk)
+
+def dsgx_string(str):
+    if str == None:
+        str = ""
+    #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
+    #this means that any longer strings need to be truncated, and any shorter strings need to be
+    #padded with 0 bytes in the output.
+    output = bytes()
+    for i in range(31):
+        if i >= len(str):
+            output += struct.pack("<x")
+        else:
+            output += struct.pack("<c",str[i].encode('ascii'))
+    #force null terminattion
+    output += struct.pack("<x")
+
+    return output
+
+def parse_material_flags(material_name):
+    #given the name of a material, see if there are any special flags
+    #to extract. Material flags are in the format:
+    #flag=value,flag=value|name
+    #the presence of a pipe character indicates that they are flags to
+    #parse, and the flags themselves are comma separated.
+
+    sections = material_name.split("|")
+    if len(sections) == 1:
+        return None
+
+    flags = {}
+    #split the separate flags on ","
+    for flag in sections[0].split(","):
+        #if a flag has a value, it will be preceeded by a "="
+        parts = flag.split("=")
+        flag_name = parts[0]
+        if  len(parts) > 1:
+            flags[flag_name] = parts[1]
+        else:
+            flags[flag_name] = True
+    return flags
+
 class Writer:
-    def write_chunk(self, fp, name, data):
-        if len(name) != 4:
-            log.error("Cannot write chunk: %s, wrong size for header!" % name)
-            return
-
-        #write the name as a non-null terminated 4-byte sequence
-        fp.write(struct.pack("<cccc", name[0].encode('ascii'), name[1].encode('ascii'), name[2].encode('ascii'), name[3].encode('ascii')))
-
-        #write out the length of data, in WORDS. (4-bytes per word)
-        length = len(data)
-        if length % 4 != 0:
-            padding = 4 - (length % 4)
-            length = length + padding
-            for i in range(padding):
-                data = data + struct.pack("<x")
-        fp.write(struct.pack("<I", int(length / 4)))
-
-        #finally, write out the data itself
-        fp.write(data)
-        log.debug("Wrote chunk: %s", name)
-        log.debug("Length: %d", int(length / 4))
-
-    def dsgx_string(self, str):
-        if str == None:
-            str = ""
-        #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
-        #this means that any longer strings need to be truncated, and any shorter strings need to be
-        #padded with 0 bytes in the output.
-        output = bytes()
-        for i in range(31):
-            if i >= len(str):
-                output += struct.pack("<x")
-            else:
-                output += struct.pack("<c",str[i].encode('ascii'))
-        #force null terminattion
-        output += struct.pack("<x")
-
-        return output
-
-    def parse_material_flags(self, material_name):
-        #given the name of a material, see if there are any special flags
-        #to extract. Material flags are in the format:
-        #flag=value,flag=value|name
-        #the presence of a pipe character indicates that they are flags to
-        #parse, and the flags themselves are comma separated.
-
-        sections = material_name.split("|")
-        if len(sections) == 1:
-            return None
-
-        flags = {}
-        #split the separate flags on ","
-        for flag in sections[0].split(","):
-            #if a flag has a value, it will be preceeded by a "="
-            parts = flag.split("=")
-            flag_name = parts[0]
-            if  len(parts) > 1:
-                flags[flag_name] = parts[1]
-            else:
-                flags[flag_name] = True
-        return flags
-
     def face_attributes(self, gx, face, model):
         #write out per-polygon lighting and texture data, but only when that
         #data is different from the previous polygon
-        if face.material != self.current_material:
-            self.current_material = face.material
-            log.debug("Switching to mtl: %s", face.material)
-            if model.materials[self.current_material].texture != None:
-                log.debug("Material has texture! Writing texture info out now.")
-                texture_name = model.materials[self.current_material].texture
-                if not texture_name in self.texture_offsets:
-                    self.texture_offsets[texture_name] = []
-                self.texture_offsets[texture_name].append(gx.offset + 1)
+        log.debug("Switching to mtl: %s", face.material)
+        if model.materials[face.material].texture != None:
+            log.debug("Material has texture! Writing texture info out now.")
+            texture_name = model.materials[face.material].texture
+            if not texture_name in self.texture_offsets:
+                self.texture_offsets[texture_name] = []
+            self.texture_offsets[texture_name].append(gx.offset + 1)
 
-                size = model.materials[self.current_material].texture_size
-                gx.teximage_param(256 * 1024, size[0], size[1], 7)
-                gx.texpllt_base(0, 0) # 0 for the offset and format; this will
-                                      # be filled in by the engine during asset
-                                      # loading.
+            size = model.materials[face.material].texture_size
+            gx.teximage_param(256 * 1024, size[0], size[1], 7)
+            gx.texpllt_base(0, 0) # 0 for the offset and format; this will
+                                  # be filled in by the engine during asset
+                                  # loading.
 
-            else:
-                log.debug("Material has no texture; outputting dummy teximage to clear state")
-                gx.teximage_param(0, 0, 0, 0)
+        else:
+            log.debug("Material has no texture; outputting dummy teximage to clear state")
+            gx.teximage_param(0, 0, 0, 0)
 
-            #polygon attributes for this material
-            flags = self.parse_material_flags(self.current_material)
-            if flags == None:
-                gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
-                pass
-            else:
-                log.debug("Encountered special case material!")
-                polygon_alpha = 31
-                if "alpha" in flags:
-                    polygon_alpha = int(flags["alpha"])
-                    log.debug("Custom alpha: %d", polygon_alpha)
-                poly_id = 0
-                if "id" in flags:
-                    poly_id = int(flags["id"])
-                    log.debug("Custom ID: %d", poly_id)
-                gx.polygon_attr(light0=1, light1=1, light2=1, light3=1, alpha=polygon_alpha, polygon_id=poly_id)
+        #polygon attributes for this material
+        flags = parse_material_flags(face.material)
+        if flags == None:
+            gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
+            pass
+        else:
+            log.debug("Encountered special case material!")
+            polygon_alpha = 31
+            if "alpha" in flags:
+                polygon_alpha = int(flags["alpha"])
+                log.debug("Custom alpha: %d", polygon_alpha)
+            poly_id = 0
+            if "id" in flags:
+                poly_id = int(flags["id"])
+                log.debug("Custom ID: %d", poly_id)
+            gx.polygon_attr(light0=1, light1=1, light2=1, light3=1, alpha=polygon_alpha, polygon_id=poly_id)
 
 
-            gx.dif_amb(
-                (
-                    model.materials[face.material].diffuse[0] * 255,
-                    model.materials[face.material].diffuse[1] * 255,
-                    model.materials[face.material].diffuse[2] * 255), #diffuse
-                (
-                    model.materials[face.material].ambient[0] * 255,
-                    model.materials[face.material].ambient[1] * 255,
-                    model.materials[face.material].ambient[2] * 255), #ambient
-                False, #setVertexColor (not sure)
-                True # use256
-            )
+        gx.dif_amb(
+            (
+                model.materials[face.material].diffuse[0] * 255,
+                model.materials[face.material].diffuse[1] * 255,
+                model.materials[face.material].diffuse[2] * 255), #diffuse
+            (
+                model.materials[face.material].ambient[0] * 255,
+                model.materials[face.material].ambient[1] * 255,
+                model.materials[face.material].ambient[2] * 255), #ambient
+            False, #setVertexColor (not sure)
+            True # use256
+        )
 
-            gx.spe_emi(
-                (
-                    model.materials[face.material].specular[0] * 255,
-                    model.materials[face.material].specular[1] * 255,
-                    model.materials[face.material].specular[2] * 255), #specular
-                (
-                    model.materials[face.material].emit[0] * 255,
-                    model.materials[face.material].emit[1] * 255,
-                    model.materials[face.material].emit[2] * 255), #emit
-                False, #useSpecularTable
-                True # use256
-            )
-
-            if not face.smooth_shading:
-                gx.normal(
-                    face.face_normal[0],
-                    face.face_normal[1],
-                    face.face_normal[2],
-                )
-            return True
-        if not face.smooth_shading:
-            gx.normal(
-                face.face_normal[0],
-                face.face_normal[1],
-                face.face_normal[2],
-            )
-        return False
+        gx.spe_emi(
+            (
+                model.materials[face.material].specular[0] * 255,
+                model.materials[face.material].specular[1] * 255,
+                model.materials[face.material].specular[2] * 255), #specular
+            (
+                model.materials[face.material].emit[0] * 255,
+                model.materials[face.material].emit[1] * 255,
+                model.materials[face.material].emit[2] * 255), #emit
+            False, #useSpecularTable
+            True # use256
+        )
 
     def output_vertex(self, gx, point, normal, model, face, vtx10=False):
         # point normal
@@ -215,6 +204,7 @@ class Writer:
 
     def process_monogroup_faces(self, gx, model, vtx10=False):
         #process faces that all belong to one vertex group (simple case)
+        current_material = None
         for group in model.groups:
             gx.push()
 
@@ -234,32 +224,40 @@ class Writer:
                 for face in model.ActiveMesh().polygons:
                     if (face.vertexGroup() == group and not face.isMixed() and
                             len(face.vertices) == polytype):
-                        if self.face_attributes(gx, face, model):
+                        if current_material != face.material:
+                            current_material = face.material
+                            self.face_attributes(gx, face, model)
                             # on material edges, we need to start a new list
                             self.start_polygon_list(gx, polytype)
+                        if not face.smooth_shading:
+                            gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
                         for p in range(len(face.vertices)):
                             # uv coordinate
-                            if model.materials[self.current_material].texture:
+                            if model.materials[current_material].texture:
                                 # two things here:
                                 # 1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
                                 #    we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
                                 # 2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
                                 #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
-                                size = model.materials[self.current_material].texture_size
+                                size = model.materials[face.material].texture_size
                                 gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
                             self.output_vertex(gx, face.vertices[p], face.vertex_normals[p], model, face, vtx10)
             gx.pop()
 
     def process_polygroup_faces(self, gx, model, vtx10=False):
         # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
+        current_material = None
         for polytype in range(3,5):
             self.start_polygon_list(gx, polytype)
-
             for face in model.ActiveMesh().polygons:
                 if len(face.vertices) == polytype and face.isMixed():
-                    if self.face_attributes(gx, face, model):
+                    if current_material != face.material:
+                        current_material = face.material
+                        self.face_attributes(gx, face, model)
                         # on material edges, we need to start a new list
                         self.start_polygon_list(gx, polytype)
+                    if not face.smooth_shading:
+                        gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
                     for p in range(len(face.vertices)):
                         point_index = face.vertices[p]
                         gx.push()
@@ -278,7 +276,7 @@ class Writer:
 
     def output_active_bounding_sphere(self, fp, model):
         bsph = bytes()
-        bsph += self.dsgx_string(model.active_mesh)
+        bsph += dsgx_string(model.active_mesh)
         sphere = model.bounding_sphere()
         bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].z), toFixed(sphere[0].y * -1), toFixed(sphere[1]))
         log.info("Bounding Sphere:")
@@ -286,14 +284,13 @@ class Writer:
         log.info("Y: %f", sphere[0].y)
         log.info("Z: %f", sphere[0].z)
         log.info("Radius: %f", sphere[1])
-        self.write_chunk(fp, "BSPH", bsph)
+        fp.write(add_chunk_header("BSPH", bsph))
 
     def output_active_mesh(self, fp, model, vtx10=False):
         gx = Emitter()
 
         self.setup_sane_defaults(gx)
 
-        self.current_material = None
         self.group_offsets = {}
         self.texture_offsets = {}
 
@@ -315,25 +312,25 @@ class Writer:
 
         gx.pop() # mtx scale
 
-        self.write_chunk(fp, "DSGX", self.dsgx_string(model.active_mesh) + gx.write())
+        fp.write(add_chunk_header("DSGX", dsgx_string(model.active_mesh) + gx.write()))
         self.output_active_bounding_sphere(fp, model)
 
         #output the cull-cost for the object
         log.info("Cycles to Draw %s: %d", model.active_mesh, gx.cycles)
-        self.write_chunk(fp, "COST", self.dsgx_string(model.active_mesh) +
-                struct.pack("<II", model.max_cull_polys(), gx.cycles))
+        fp.write(add_chunk_header("COST", dsgx_string(model.active_mesh) +
+            struct.pack("<II", model.max_cull_polys(), gx.cycles)))
 
     def output_active_bones(self, fp, model):
         if not model.animations:
             return
         #matrix offsets for each bone
         bone = bytes()
-        bone += self.dsgx_string(model.active_mesh)
+        bone += dsgx_string(model.active_mesh)
         some_animation = model.animations[next(iter(model.animations.keys()))]
         bone += struct.pack("<I", len(some_animation.nodes.keys())) #number of bones in the file
         for node_name in sorted(some_animation.nodes.keys()):
             if node_name != "default":
-                bone += self.dsgx_string(node_name) #name of this bone
+                bone += dsgx_string(node_name) #name of this bone
                 if node_name in self.group_offsets:
                     bone += struct.pack("<I", len(self.group_offsets[node_name])) #number of copies of this matrix in the dsgx file
 
@@ -350,16 +347,16 @@ class Writer:
                     log.debug("Skipping bone data for: %s", node_name)
                     log.debug("Number of offsets: 0")
                     bone += struct.pack("<I", 0)
-        self.write_chunk(fp, "BONE", bone)
+        fp.write(add_chunk_header("BONE", bone))
 
     def output_active_textures(self, fp, model):
         #texparam offsets for each texture
         txtr = bytes()
-        txtr += self.dsgx_string(model.active_mesh)
+        txtr += dsgx_string(model.active_mesh)
         txtr += struct.pack("<I", len(self.texture_offsets))
         log.debug("Total number of textures: %d", len(self.texture_offsets))
         for texture in sorted(self.texture_offsets):
-            txtr += self.dsgx_string(texture) #name of this texture
+            txtr += dsgx_string(texture) #name of this texture
 
             txtr += struct.pack("<I", len(self.texture_offsets[texture])) #number of references to this texture in the dsgx file
 
@@ -369,13 +366,13 @@ class Writer:
 
             for offset in self.texture_offsets[texture]:
                 txtr += struct.pack("<I", offset)
-        self.write_chunk(fp, "TXTR", txtr)
+        fp.write(add_chunk_header("TXTR", txtr))
 
     def output_animations(self, fp, model):
         #animation data!
         for animation in model.animations:
             bani = bytes()
-            bani += self.dsgx_string(animation)
+            bani += dsgx_string(animation)
             bani += struct.pack("<I", model.animations[animation].length)
             log.debug("Writing animation data: %s", animation)
             log.debug("Length in frames: %d", model.animations[animation].length)
@@ -394,7 +391,7 @@ class Writer:
                         bani += struct.pack("<iiii", toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l))
                         bani += struct.pack("<iiii", toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p))
                         count = count + 1
-            self.write_chunk(fp, "BANI", bani)
+            fp.write(add_chunk_header("BANI", bani))
             log.debug("Wrote %d matricies", count)
 
     def write(self, filename, model, vtx10=False):
