@@ -116,14 +116,18 @@ def parse_material_flags_new(material_name):
     The pipe character indicates that flags are present, and the flags are comma
     separated. A flag without a value is interpreted as a boolean True.
     """
-    sections = material_name.split("|")
-    if not sections[1:]:
+    if "|" not in material_name:
         return None
-    flags = {}
-    for flag in sections[0].split(","):
-        parts = flag.split("=")
-        flags[parts[0]] = parts[1] if parts[1:] else True
-    return flags
+    flags_string = material_name.split("|")[0]
+    flag_parts = (flag.split("=") for flag in flags_string.split(","))
+    flags = ((parts[0], (parts[1] if parts[1:] else True))
+        for parts in flag_parts)
+    return dict(flags)
+    # flags = {}
+    # for flag in material_name.split("|")[0].split(","):
+    #     parts = flag.split("=")
+    #     flags[parts[0]] = parts[1] if parts[1:] else True
+    # return flags
 
 @reconcile(parse_material_flags_new)
 def parse_material_flags(material_name):
