@@ -1,13 +1,18 @@
-import euclid3 as euclid
-import struct # , model
-# Writer: given a Model type, this converts it to an
-# nds object, and outputs several files-- a base model
-# for direct DMA into the NDS GX engine, and a listing
-# of animations and their offsets to adjust the base for
-# deformation.
+"""Converter to and from DSGX files.
 
-import logging
+The Writer takes a Model instance and writes a DSGX file. DSGX is a RIFF-like
+format, with the main difference being that the size of each chunk is in four
+byte words instead of bytes. This is because the target platform is ARM, which
+has issues reading incorrectly aligned data. All chunks are padded to four byte
+alignment, elimintating the possibility of unaligned data without the need for
+complex padding rules.
+"""
+
+import logging, struct
+import euclid3 as euclid
+
 log = logging.getLogger()
+WORD_SIZE_BYTES = 4
 
 def reconcile(new):
     """Ensure two functions return the same values given the same arugments."""
@@ -15,7 +20,7 @@ def reconcile(new):
         def reconciler(*args, **kwargs):
             expected_result = old(*args, **kwargs)
             new_result = new(*args, **kwargs)
-            assert expected_result == new_result, "unable to reconcile function results: %s returned %s but %s returned %s" % (old.__name__, expected_result, new.__name__, new_result)
+            assert expected_result == new_result, "unable to reconcile function results: %s returned %s but %s returned %s" % (old.__name__, repr(expected_result), new.__name__, repr(new_result))
             return expected_result
         return reconciler
     return reconcile_decorator
@@ -37,19 +42,15 @@ def wrap_chunk(name, data):
     name must be four characters long.
     """
     assert len(name) == 4, "invalid chunk name: %s is not four characters long" % name
-    name = name.encode("ascii")
-    padding_size_bytes = padding_to(len(data))
-    padded_payload_size_words = int((len(data) + padding_size_bytes) / 4)
-
-    chunk = (struct.pack('<4s', name),
-        struct.pack('<I', padded_payload_size_words),
-        data,
-        struct.pack("<%dx" % padding_size_bytes))
-
+    padding_size_bytes = padding_to(len(data), WORD_SIZE_BYTES)
+    padded_payload_size_words = int((len(data) + padding_size_bytes) /
+        WORD_SIZE_BYTES)
+    chunk = struct.pack('< 4s I %ds %dx' % (len(data), padding_size_bytes),
+        name.encode("ascii"), padded_payload_size_words, data)
     log.debug("Wrapped %s chunk with a %d word payload", name, padded_payload_size_words)
-    return b"".join(chunk)
+    return chunk
 
-def padding_to(byte_count, alignment=4):
+def padding_to(byte_count, alignment=WORD_SIZE_BYTES):
     """Calculate the number of bytes to pad byte_count bytes to alignment."""
     return alignment - (byte_count % alignment) if byte_count % alignment else 0
 
