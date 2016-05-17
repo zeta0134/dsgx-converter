@@ -20,7 +20,7 @@ Options:
 """
 from docopt import docopt
 import logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger()
 
 import os, sys

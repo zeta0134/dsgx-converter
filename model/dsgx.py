@@ -348,11 +348,11 @@ class Writer:
         bsph += dsgx_string(model.active_mesh)
         sphere = model.bounding_sphere()
         bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].z), toFixed(sphere[0].y * -1), toFixed(sphere[1]))
-        log.info("Bounding Sphere:")
-        log.info("X: %f", sphere[0].x)
-        log.info("Y: %f", sphere[0].y)
-        log.info("Z: %f", sphere[0].z)
-        log.info("Radius: %f", sphere[1])
+        log.debug("Bounding Sphere:")
+        log.debug("X: %f", sphere[0].x)
+        log.debug("Y: %f", sphere[0].y)
+        log.debug("Z: %f", sphere[0].z)
+        log.debug("Radius: %f", sphere[1])
         fp.write(add_chunk_header("BSPH", bsph))
 
     def output_active_mesh(self, fp, model, vtx10=False):
@@ -372,8 +372,8 @@ class Writer:
             inverse_scale = 1 / self.scale_factor
             gx.mtx_scale(inverse_scale, inverse_scale, inverse_scale)
 
-        log.info("Global Matrix: ")
-        log.info(model.global_matrix)
+        log.debug("Global Matrix: ")
+        log.debug(model.global_matrix)
 
 
         self.process_monogroup_faces(gx, model, vtx10)
@@ -385,7 +385,7 @@ class Writer:
         self.output_active_bounding_sphere(fp, model)
 
         #output the cull-cost for the object
-        log.info("Cycles to Draw %s: %d", model.active_mesh, gx.cycles)
+        log.debug("Cycles to Draw %s: %d", model.active_mesh, gx.cycles)
         fp.write(add_chunk_header("COST", dsgx_string(model.active_mesh) +
             struct.pack("<II", model.max_cull_polys(), gx.cycles)))
 
