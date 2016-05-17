@@ -123,11 +123,6 @@ def parse_material_flags_new(material_name):
     flags = ((parts[0], (parts[1] if parts[1:] else True))
         for parts in flag_parts)
     return dict(flags)
-    # flags = {}
-    # for flag in material_name.split("|")[0].split(","):
-    #     parts = flag.split("=")
-    #     flags[parts[0]] = parts[1] if parts[1:] else True
-    # return flags
 
 @reconcile(parse_material_flags_new)
 def parse_material_flags(material_name):
