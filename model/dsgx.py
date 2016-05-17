@@ -9,9 +9,51 @@ import struct # , model
 import logging
 log = logging.getLogger()
 
+def reconcile(new):
+    """Ensure two functions return the same values given the same arugments."""
+    def reconcile_decorator(old):
+        def reconciler(*args, **kwargs):
+            expected_result = old(*args, **kwargs)
+            new_result = new(*args, **kwargs)
+            assert expected_result == new_result, "unable to reconcile function results: %s returned %s but %s returned %s" % (old.__name__, expected_result, new.__name__, new_result)
+            return expected_result
+        return reconciler
+    return reconcile_decorator
+
+def to_fixed_point(float_value, fraction=12):
+    return int(float_value * pow(2, fraction))
+
+@reconcile(to_fixed_point)
 def toFixed(float_value, fraction=12):
         return int(float_value * pow(2,fraction))
 
+def wrap_chunk(name, data):
+    """Convert data into the chunk format.
+
+    Prepends the name of the chunk and the length of the payload in four byte
+    words to data and appends zero padding to the end of the data to ensure the
+    resulting chunk is an integer number of words long.
+
+    name must be four characters long.
+    """
+    assert len(name) == 4, "Cannot write chunk: %s, wrong size for header!" % name
+    name = b"".join(c.encode('ascii') for c in name)
+    padding_size_bytes = padding_to(len(data))
+    padded_payload_size_words = int((len(data) + padding_size_bytes) / 4)
+
+    chunk = (struct.pack('<4s', name),
+        struct.pack('<I', padded_payload_size_words),
+        data,
+        struct.pack("<%dx" % padding_to(len(data))))
+
+    log.debug("Wrapped %s chunk with a %d word payload", name, padded_payload_size_words)
+    return b"".join(chunk)
+
+def padding_to(byte_count, alignment=4):
+    """Calculate the number of bytes to pad byte_count bytes to alignment."""
+    return alignment - (byte_count % alignment) if byte_count % alignment else 0
+
+@reconcile(wrap_chunk)
 def add_chunk_header(name, data):
     assert(len(name) == 4, "Cannot write chunk: %s, wrong size for header!" % name)
     name = [c.encode('ascii') for c in name]
@@ -40,6 +82,12 @@ def add_chunk_header(name, data):
 
     return b"".join(chunk)
 
+def to_dsgx_string(string):
+    """Convert string to a 32 byte null terminated C string byte string."""
+    string = "" if string == None else string
+    return struct.pack("<31sx", string.encode('ascii'))
+
+@reconcile(to_dsgx_string)
 def dsgx_string(str):
     if str == None:
         str = ""
@@ -57,6 +105,27 @@ def dsgx_string(str):
 
     return output
 
+def parse_material_flags_new(material_name):
+    """Extract the contents of flags embedded into the material_name.
+
+    Flags are of the format:
+       flag=value,flag=value|name
+    or
+       flag|name
+
+    The pipe character indicates that flags are present, and the flags are comma
+    separated. A flag without a value is interpreted as a boolean True.
+    """
+    sections = material_name.split("|")
+    if not sections[1:]:
+        return None
+    flags = {}
+    for flag in sections[0].split(","):
+        parts = flag.split("=")
+        flags[parts[0]] = parts[1] if parts[1:] else True
+    return flags
+
+@reconcile(parse_material_flags_new)
 def parse_material_flags(material_name):
     #given the name of a material, see if there are any special flags
     #to extract. Material flags are in the format:
