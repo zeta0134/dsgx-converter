@@ -149,72 +149,61 @@ def parse_material_flags(material_name):
             flags[flag_name] = True
     return flags
 
+def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
+    if not texture_name in texture_offsets_list:
+        texture_offsets_list[texture_name] = []
+    texture_offsets_list[texture_name].append(gx.offset + 1)
+
+    size = material.texture_size
+    gx.teximage_param(256 * 1024, size[0], size[1], 7)
+    gx.texpllt_base(0, 0) # 0 for the offset and format; this will
+                          # be filled in by the engine during asset
+                          # loading.
+
+def write_face_attributes(gx, face, model, texture_offsets_list):
+    #write out material and texture data for this polygon
+    log.debug("Writing material: %s", face.material)
+    material = model.materials[face.material]
+    if material.texture != None:
+        log.debug("%s is textured! Writing texture info out now.", face.material)
+        texture_name = model.materials[face.material].texture
+        write_texture_attributes(gx, texture_name, material, texture_offsets_list)
+    else:
+        log.debug("%s has no texture; outputting dummy teximage to clear state.", face.material)
+        gx.teximage_param(0, 0, 0, 0)
+
+    #polygon attributes for this material
+    flags = parse_material_flags(face.material)
+    if flags == None:
+        gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
+        pass
+    else:
+        log.debug("Encountered special case material!")
+        polygon_alpha = 31
+        if "alpha" in flags:
+            polygon_alpha = int(flags["alpha"])
+            log.debug("Custom alpha: %d", polygon_alpha)
+        poly_id = 0
+        if "id" in flags:
+            poly_id = int(flags["id"])
+            log.debug("Custom ID: %d", poly_id)
+        gx.polygon_attr(light0=1, light1=1, light2=1, light3=1, alpha=polygon_alpha, polygon_id=poly_id)
+
+    gx.dif_amb(
+        [component * 255 for component in material.diffuse],
+        [component * 255 for component in material.ambient],
+        False, #setVertexColor (not sure)
+        True # use256
+    )
+
+    gx.spe_emi(
+        [component * 255 for component in material.specular],
+        [component * 255 for component in material.emit],
+        False, #useSpecularTable
+        True # use256
+    )
+
 class Writer:
-    def face_attributes(self, gx, face, model):
-        #write out per-polygon lighting and texture data, but only when that
-        #data is different from the previous polygon
-        log.debug("Switching to mtl: %s", face.material)
-        if model.materials[face.material].texture != None:
-            log.debug("Material has texture! Writing texture info out now.")
-            texture_name = model.materials[face.material].texture
-            if not texture_name in self.texture_offsets:
-                self.texture_offsets[texture_name] = []
-            self.texture_offsets[texture_name].append(gx.offset + 1)
-
-            size = model.materials[face.material].texture_size
-            gx.teximage_param(256 * 1024, size[0], size[1], 7)
-            gx.texpllt_base(0, 0) # 0 for the offset and format; this will
-                                  # be filled in by the engine during asset
-                                  # loading.
-
-        else:
-            log.debug("Material has no texture; outputting dummy teximage to clear state")
-            gx.teximage_param(0, 0, 0, 0)
-
-        #polygon attributes for this material
-        flags = parse_material_flags(face.material)
-        if flags == None:
-            gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
-            pass
-        else:
-            log.debug("Encountered special case material!")
-            polygon_alpha = 31
-            if "alpha" in flags:
-                polygon_alpha = int(flags["alpha"])
-                log.debug("Custom alpha: %d", polygon_alpha)
-            poly_id = 0
-            if "id" in flags:
-                poly_id = int(flags["id"])
-                log.debug("Custom ID: %d", poly_id)
-            gx.polygon_attr(light0=1, light1=1, light2=1, light3=1, alpha=polygon_alpha, polygon_id=poly_id)
-
-
-        gx.dif_amb(
-            (
-                model.materials[face.material].diffuse[0] * 255,
-                model.materials[face.material].diffuse[1] * 255,
-                model.materials[face.material].diffuse[2] * 255), #diffuse
-            (
-                model.materials[face.material].ambient[0] * 255,
-                model.materials[face.material].ambient[1] * 255,
-                model.materials[face.material].ambient[2] * 255), #ambient
-            False, #setVertexColor (not sure)
-            True # use256
-        )
-
-        gx.spe_emi(
-            (
-                model.materials[face.material].specular[0] * 255,
-                model.materials[face.material].specular[1] * 255,
-                model.materials[face.material].specular[2] * 255), #specular
-            (
-                model.materials[face.material].emit[0] * 255,
-                model.materials[face.material].emit[1] * 255,
-                model.materials[face.material].emit[2] * 255), #emit
-            False, #useSpecularTable
-            True # use256
-        )
-
     def output_vertex(self, gx, point, normal, model, face, vtx10=False):
         # point normal
         # p_normal = model.ActiveMesh().point_normal(point)
@@ -295,7 +284,7 @@ class Writer:
                             len(face.vertices) == polytype):
                         if current_material != face.material:
                             current_material = face.material
-                            self.face_attributes(gx, face, model)
+                            write_face_attributes(gx, face, model, self.texture_offsets)
                             # on material edges, we need to start a new list
                             self.start_polygon_list(gx, polytype)
                         if not face.smooth_shading:
@@ -322,7 +311,7 @@ class Writer:
                 if len(face.vertices) == polytype and face.isMixed():
                     if current_material != face.material:
                         current_material = face.material
-                        self.face_attributes(gx, face, model)
+                        write_face_attributes(gx, face, model, self.texture_offsets)
                         # on material edges, we need to start a new list
                         self.start_polygon_list(gx, polytype)
                     if not face.smooth_shading:
