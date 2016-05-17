@@ -36,15 +36,15 @@ def wrap_chunk(name, data):
 
     name must be four characters long.
     """
-    assert len(name) == 4, "Cannot write chunk: %s, wrong size for header!" % name
-    name = b"".join(c.encode('ascii') for c in name)
+    assert len(name) == 4, "invalid chunk name: %s is not four characters long" % name
+    name = name.encode("ascii")
     padding_size_bytes = padding_to(len(data))
     padded_payload_size_words = int((len(data) + padding_size_bytes) / 4)
 
     chunk = (struct.pack('<4s', name),
         struct.pack('<I', padded_payload_size_words),
         data,
-        struct.pack("<%dx" % padding_to(len(data))))
+        struct.pack("<%dx" % padding_size_bytes))
 
     log.debug("Wrapped %s chunk with a %d word payload", name, padded_payload_size_words)
     return b"".join(chunk)
