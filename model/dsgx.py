@@ -26,6 +26,18 @@ def reconcile(new):
         return reconciler
     return reconcile_decorator
 
+# from https://stackoverflow.com/a/10824420
+def flatten(container):
+    for i in container:
+        if isinstance(i, (list, tuple)):
+            for j in flatten(i):
+                yield j
+        else:
+            yield i
+
+def scale_components(components, constant):
+    return [component * constant for component in components]
+
 def to_fixed_point(float_value, fraction=12):
     return int(float_value * 2 ** fraction)
 
@@ -154,7 +166,7 @@ def command(command, parameters=None):
     parameters = parameters if parameters else []
     return dict(instruction=command, params=parameters)
 
-def teximage_param(offset, width, height, format=0, palette_transparency=0,
+def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
     transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0):
     #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
     #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
@@ -184,8 +196,7 @@ def teximage_param(offset, width, height, format=0, palette_transparency=0,
 def texpllt_base(offset, texture_format):
     FOUR_COLOR_PALETTE = 2
     shift = 8 if texture_format == FOUR_COLOR_PALETTE else 16
-    offset >>= shift
-    return command(0x2B, [struct.pack("<I", offset & 0xFFF)])
+    return command(0x2B, [struct.pack("<I", (offset >> shift) & 0xFFF)])
     # self.cycles += 1
 
 def generate_texture_attributes(gx, texture_name, material, texture_offsets_list):
@@ -198,8 +209,8 @@ def generate_texture_attributes(gx, texture_name, material, texture_offsets_list
     # Since the location and format of the texture will only be known at
     # runtime, use zero for the offset and format. It will be filled in by the
     # engine during asset loading.
-    return [teximage_param(DEFAULT_OFFSET, width, height, DIRECT_TEXTURE),
-        texpllt_base(0, 0)]
+    return [teximage_param(width, height, format=DIRECT_TEXTURE,
+        offset=DEFAULT_OFFSET), texpllt_base(0, 0)]
 
 @reconcile(generate_texture_attributes)
 def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
@@ -243,16 +254,8 @@ def polygon_attr(light0=0, light1=0, light2=0, light3=0,
 def dif_amb(diffuse, ambient, setvertex=False, use256=False):
     if use256:
         # DS colors are in 16bit mode (5 bits per value)
-        diffuse = (
-            int(diffuse[0]/8),
-            int(diffuse[1]/8),
-            int(diffuse[2]/8),
-        )
-        ambient = (
-            int(ambient[0]/8),
-            int(ambient[1]/8),
-            int(ambient[2]/8),
-        )
+        diffuse = [int(c) for c in scale_components(diffuse, 1/8)]
+        ambient = [int(c) for c in scale_components(ambient, 1/8)]
     cmd = command(0x30, [
         struct.pack("<I",
         (diffuse[0] & 0x1F) +
@@ -269,16 +272,8 @@ def dif_amb(diffuse, ambient, setvertex=False, use256=False):
 def spe_emi(specular, emit, use_specular_table=False, use256=False):
     if use256:
         # DS colors are in 16bit mode (5 bits per value)
-        specular = (
-            int(specular[0]/8),
-            int(specular[1]/8),
-            int(specular[2]/8),
-        )
-        emit = (
-            int(emit[0]/8),
-            int(emit[1]/8),
-            int(emit[2]/8),
-        )
+        specular = [int(c) for c in scale_components(specular, 1/8)]
+        emit = [int(c) for c in scale_components(emit, 1/8)]
     cmd = command(0x31, [
         struct.pack("<I",
         (specular[0] & 0x1F) +
@@ -292,25 +287,21 @@ def spe_emi(specular, emit, use_specular_table=False, use256=False):
     # self.cycles += 4
     return cmd
 
+CLEAR_TEXTURE_PARAMETERS = teximage_param(0, 0, 0, 0)
+
 def generate_face_attributes(gx, face, model, texture_offsets_list):
     material = model.materials[face.material]
     flags = parse_material_flags(face.material)
-    return (generate_texture_attributes(gx, material.texture, material,
-        texture_offsets_list) if material.texture else [teximage_param(0, 0, 0,
-        0)]) + [polygon_attr(light0=1, light1=1, light2=1, light3=1,
-        alpha=int(flags.get("alpha", 31)), polygon_id=int(flags.get("id", 0))),
-        dif_amb(
-            [component * 255 for component in material.diffuse],
-            [component * 255 for component in material.ambient],
-            False, #setVertexColor (not sure)
-            True # use256
-        ),
-        spe_emi(
-            [component * 255 for component in material.specular],
-            [component * 255 for component in material.emit],
-            False, #useSpecularTable
-            True # use256
-        )]
+    scale = lambda components: scale_components(components, 255)
+
+    texture_attributes = (generate_texture_attributes(gx, material.texture,
+        material, texture_offsets_list) if material.texture else
+        CLEAR_TEXTURE_PARAMETERS)
+    polygon_attributes = polygon_attr(light0=1, light1=1, light2=1, light3=1,
+        alpha=int(flags.get("alpha", 31)), polygon_id=int(flags.get("id", 0)))
+    return list(flatten([texture_attributes,  polygon_attributes,
+        dif_amb(scale(material.diffuse), scale(material.ambient), use256=True),
+        spe_emi(scale(material.specular), scale(material.emit), use256=True)]))
 
 @reconcile(generate_face_attributes)
 def write_face_attributes(gx, face, model, texture_offsets_list):
