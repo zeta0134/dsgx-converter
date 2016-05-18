@@ -203,34 +203,19 @@ def write_face_attributes(gx, face, model, texture_offsets_list):
         True # use256
     )
 
-class Writer:
-    def output_vertex(self, gx, point, normal, model, face, vtx10=False):
-        # point normal
-        # p_normal = model.ActiveMesh().point_normal(point)
-        if face.smooth_shading:
-            if normal == None:
-                log.warn("Problem: no normal for this point!", face.vertices)
-            else:
-                gx.normal(
-                    normal[0],
-                    normal[1],
-                    normal[2],
-                )
-        # location
-        location = model.ActiveMesh().vertices[point].location
-        if vtx10:
-            gx.vtx_10(
-                location.x * self.scale_factor,
-                location.y * self.scale_factor,
-                location.z * self.scale_factor
-            )
-        else:
-            gx.vtx_16(
-                location.x * self.scale_factor,
-                location.y * self.scale_factor,
-                location.z * self.scale_factor
-            )
+def write_normal(gx, normal):
+    if normal == None:
+        log.warn("Problem: no normal for this point!", face.vertices)
+    else:
+        gx.normal(*normal)
 
+def write_vertex(gx, location, scale_factor, vtx10=False):
+    if vtx10:
+        gx.vtx_10(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
+    else:
+        gx.vtx_16(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
+
+class Writer:
     def determineScaleFactor(self, model):
         scale_factor = 1.0
         bb = model.bounding_box()
@@ -299,7 +284,10 @@ class Writer:
                                 #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
                                 size = model.materials[face.material].texture_size
                                 gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                            self.output_vertex(gx, face.vertices[p], face.vertex_normals[p], model, face, vtx10)
+                            if face.smooth_shading:
+                                write_normal(gx, face.vertex_normals[p])
+                            vertex_location = model.ActiveMesh().vertices[face.vertices[p]].location
+                            write_vertex(gx, vertex_location, self.scale_factor, vtx10)
             gx.pop()
 
     def process_polygroup_faces(self, gx, model, vtx10=False):
@@ -329,7 +317,11 @@ class Writer:
                         self.group_offsets[group].append(gx.offset + 1)
 
                         gx.mtx_mult_4x4(euclid.Matrix4())
-                        self.output_vertex(gx, point_index, face.vertex_normals[p], model, face, vtx10)
+
+                        if face.smooth_shading:
+                            write_normal(gx, face.vertex_normals[p])
+                        vertex_location = model.ActiveMesh().vertices[point_index].location
+                        write_vertex(gx, vertex_location, self.scale_factor, vtx10)
                         gx.pop()
 
     def output_active_bounding_sphere(self, fp, model):
