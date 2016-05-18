@@ -9,6 +9,7 @@ complex padding rules.
 """
 
 import logging, struct
+from collections import defaultdict
 import euclid3 as euclid
 
 log = logging.getLogger()
@@ -26,7 +27,7 @@ def reconcile(new):
     return reconcile_decorator
 
 def to_fixed_point(float_value, fraction=12):
-    return int(float_value * pow(2, fraction))
+    return int(float_value * 2 ** fraction)
 
 @reconcile(to_fixed_point)
 def toFixed(float_value, fraction=12):
@@ -118,7 +119,7 @@ def parse_material_flags_new(material_name):
     separated. A flag without a value is interpreted as a boolean True.
     """
     if "|" not in material_name:
-        return None
+        return {}
     flags_string = material_name.split("|")[0]
     flag_parts = (flag.split("=") for flag in flags_string.split(","))
     flags = ((parts[0], (parts[1] if parts[1:] else True))
@@ -135,7 +136,7 @@ def parse_material_flags(material_name):
 
     sections = material_name.split("|")
     if len(sections) == 1:
-        return None
+        return {}
 
     flags = {}
     #split the separate flags on ","
@@ -149,35 +150,185 @@ def parse_material_flags(material_name):
             flags[flag_name] = True
     return flags
 
+def command(command, parameters=None):
+    parameters = parameters if parameters else []
+    return dict(instruction=command, params=parameters)
+
+def teximage_param(offset, width, height, format=0, palette_transparency=0,
+    transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0):
+    #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
+    #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
+    width_index = 0
+    while width > 8:
+        width = width >> 1
+        width_index += 1;
+    height_index = 0
+    while height > 8:
+        height = height >> 1
+        height_index += 1;
+
+    attr = (
+        (int(offset / 8) & 0xFFFF) +
+        ((u_repeat & 0x1) << 16) +
+        ((v_repeat & 0x1) << 17) +
+        ((u_flip & 0x1) << 18) +
+        ((v_flip & 0x1) << 19) +
+        ((width_index & 0x7) << 20) +
+        ((height_index & 0x7) << 23) +
+        ((format & 0x7) << 26) +
+        ((palette_transparency & 0x1) << 29) +
+        ((transform_mode & 0x3) << 30))
+    return command(0x2A, [struct.pack("<I", attr)])
+    # self.cycles += 1
+
+def texpllt_base(offset, texture_format):
+    FOUR_COLOR_PALETTE = 2
+    shift = 8 if texture_format == FOUR_COLOR_PALETTE else 16
+    offset >>= shift
+    return command(0x2B, [struct.pack("<I", offset & 0xFFF)])
+    # self.cycles += 1
+
+def generate_texture_attributes(gx, texture_name, material, texture_offsets_list):
+    DEFAULT_OFFSET = 256 * 1024
+    DIRECT_TEXTURE = 7
+    # TODO: This needs to be accounted for eventually once the gx refactoring is
+    # done - i.e. once it is removed entirely
+    # texture_offsets_list[texture_name].append(gx.offset + 1)
+    width, height = material.texture_size
+    # Since the location and format of the texture will only be known at
+    # runtime, use zero for the offset and format. It will be filled in by the
+    # engine during asset loading.
+    return [teximage_param(DEFAULT_OFFSET, width, height, DIRECT_TEXTURE),
+        texpllt_base(0, 0)]
+
+@reconcile(generate_texture_attributes)
 def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
-    if not texture_name in texture_offsets_list:
-        texture_offsets_list[texture_name] = []
     texture_offsets_list[texture_name].append(gx.offset + 1)
 
     size = material.texture_size
-    gx.teximage_param(256 * 1024, size[0], size[1], 7)
-    gx.texpllt_base(0, 0) # 0 for the offset and format; this will
-                          # be filled in by the engine during asset
-                          # loading.
+    return [gx.teximage_param(256 * 1024, size[0], size[1], 7),
+        gx.texpllt_base(0, 0)] # 0 for the offset and format; this will
+                               # be filled in by the engine during asset
+                               # loading.
 
+polygon_mode_modulation = 0
+polygon_mode_normal = 0
+polygon_mode_decal = 1
+polygon_mode_toon_highlight = 2
+polygon_mode_shadow = 3
+polygon_depth_less = 0
+polygon_depth_equal = 1
+def polygon_attr(light0=0, light1=0, light2=0, light3=0,
+    mode=polygon_mode_modulation, front=1, back=0, new_depth=0,
+    farplane_intersecting=1, dot_polygons=1, depth_test=polygon_depth_less,
+    fog_enable=1, alpha=31, polygon_id=0):
+
+    attr = ((light0 & 0x1 << 0) +
+        ((light1 & 0x1) << 1) +
+        ((light2 & 0x1) << 2) +
+        ((light3 & 0x1) << 3) +
+        ((mode & 0x3) << 4)  +
+        ((back & 0x1) << 6) +
+        ((front & 0x1) << 7) +
+        ((new_depth & 0x1) << 11) +  # for translucent polygons
+        ((farplane_intersecting & 0x1) << 12) +
+        ((depth_test & 0x1) << 14) +
+        ((fog_enable & 0x1) << 15) +
+        ((alpha & 0x1F) << 16) +  # 0-31
+        ((polygon_id & 0x3F) << 24))
+
+    return command(0x29, [struct.pack("<I", attr)])
+    # self.cycles += 1
+
+def dif_amb(diffuse, ambient, setvertex=False, use256=False):
+    if use256:
+        # DS colors are in 16bit mode (5 bits per value)
+        diffuse = (
+            int(diffuse[0]/8),
+            int(diffuse[1]/8),
+            int(diffuse[2]/8),
+        )
+        ambient = (
+            int(ambient[0]/8),
+            int(ambient[1]/8),
+            int(ambient[2]/8),
+        )
+    cmd = command(0x30, [
+        struct.pack("<I",
+        (diffuse[0] & 0x1F) +
+        ((diffuse[1] & 0x1F) << 5) +
+        ((diffuse[2] & 0x1F) << 10) +
+        ((setvertex & 0x1) << 15) +
+        ((ambient[0] & 0x1F) << 16) +
+        ((ambient[1] & 0x1F) << 21) +
+        ((ambient[2] & 0x1F) << 26))
+    ])
+    # self.cycles += 4
+    return cmd
+
+def spe_emi(specular, emit, use_specular_table=False, use256=False):
+    if use256:
+        # DS colors are in 16bit mode (5 bits per value)
+        specular = (
+            int(specular[0]/8),
+            int(specular[1]/8),
+            int(specular[2]/8),
+        )
+        emit = (
+            int(emit[0]/8),
+            int(emit[1]/8),
+            int(emit[2]/8),
+        )
+    cmd = command(0x31, [
+        struct.pack("<I",
+        (specular[0] & 0x1F) +
+        ((specular[1] & 0x1F) << 5) +
+        ((specular[2] & 0x1F) << 10) +
+        ((use_specular_table & 0x1) << 15) +
+        ((emit[0] & 0x1F) << 16) +
+        ((emit[1] & 0x1F) << 21) +
+        ((emit[2] & 0x1F) << 26))
+    ])
+    # self.cycles += 4
+    return cmd
+
+def generate_face_attributes(gx, face, model, texture_offsets_list):
+    material = model.materials[face.material]
+    flags = parse_material_flags(face.material)
+    return (generate_texture_attributes(gx, material.texture, material,
+        texture_offsets_list) if material.texture else [teximage_param(0, 0, 0,
+        0)]) + [polygon_attr(light0=1, light1=1, light2=1, light3=1,
+        alpha=int(flags.get("alpha", 31)), polygon_id=int(flags.get("id", 0))),
+        dif_amb(
+            [component * 255 for component in material.diffuse],
+            [component * 255 for component in material.ambient],
+            False, #setVertexColor (not sure)
+            True # use256
+        ),
+        spe_emi(
+            [component * 255 for component in material.specular],
+            [component * 255 for component in material.emit],
+            False, #useSpecularTable
+            True # use256
+        )]
+
+@reconcile(generate_face_attributes)
 def write_face_attributes(gx, face, model, texture_offsets_list):
     #write out material and texture data for this polygon
     log.debug("Writing material: %s", face.material)
+    gx_commands = []
     material = model.materials[face.material]
     if material.texture != None:
         log.debug("%s is textured! Writing texture info out now.", face.material)
         texture_name = model.materials[face.material].texture
-        write_texture_attributes(gx, texture_name, material, texture_offsets_list)
+        gx_commands.extend(write_texture_attributes(gx, texture_name, material, texture_offsets_list))
     else:
         log.debug("%s has no texture; outputting dummy teximage to clear state.", face.material)
-        gx.teximage_param(0, 0, 0, 0)
+        gx_commands.append(gx.teximage_param(0, 0, 0, 0))
 
     #polygon attributes for this material
     flags = parse_material_flags(face.material)
-    if flags == None:
-        gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
-        pass
-    else:
+    if flags:
         log.debug("Encountered special case material!")
         polygon_alpha = 31
         if "alpha" in flags:
@@ -187,21 +338,24 @@ def write_face_attributes(gx, face, model, texture_offsets_list):
         if "id" in flags:
             poly_id = int(flags["id"])
             log.debug("Custom ID: %d", poly_id)
-        gx.polygon_attr(light0=1, light1=1, light2=1, light3=1, alpha=polygon_alpha, polygon_id=poly_id)
+        gx_commands.append(gx.polygon_attr(light0=1, light1=1, light2=1, light3=1, alpha=polygon_alpha, polygon_id=poly_id))
+    else:
+        gx_commands.append(gx.polygon_attr(light0=1, light1=1, light2=1, light3=1))
 
-    gx.dif_amb(
+    gx_commands.append(gx.dif_amb(
         [component * 255 for component in material.diffuse],
         [component * 255 for component in material.ambient],
         False, #setVertexColor (not sure)
         True # use256
-    )
+    ))
 
-    gx.spe_emi(
+    gx_commands.append(gx.spe_emi(
         [component * 255 for component in material.specular],
         [component * 255 for component in material.emit],
         False, #useSpecularTable
         True # use256
-    )
+    ))
+    return gx_commands
 
 def write_normal(gx, normal):
     if normal == None:
@@ -342,7 +496,7 @@ class Writer:
         write_sane_defaults(gx)
 
         self.group_offsets = {}
-        self.texture_offsets = {}
+        self.texture_offsets = defaultdict(list)
 
         self.scale_factor = determine_scale_factor(model)
 
@@ -472,7 +626,7 @@ class Emitter:
         cmd = {'instruction': command, 'params': parameters}
         self.commands.append(cmd)
         self.offset += 1 + len(parameters)
-        return self.offset
+        return cmd
 
     def write(self, packed=False):
         # todo: modify this heavily, allow packed commands
@@ -603,10 +757,11 @@ class Emitter:
             ((alpha & 0x1F) << 16) +    # 0-31
             ((polygon_id & 0x3F) << 24))
 
-        self.command(0x29, [
+        cmd = self.command(0x29, [
             struct.pack("<I",attr)
         ])
         self.cycles += 1
+        return cmd
 
     def color(self, red, green, blue, use256=False):
         if (use256):
@@ -644,7 +799,7 @@ class Emitter:
                 int(ambient[1]/8),
                 int(ambient[2]/8),
             )
-        self.command(0x30, [
+        cmd = self.command(0x30, [
             struct.pack("<I",
             (diffuse[0] & 0x1F) +
             ((diffuse[1] & 0x1F) << 5) +
@@ -655,6 +810,7 @@ class Emitter:
             ((ambient[2] & 0x1F) << 26))
         ])
         self.cycles += 4
+        return cmd
 
     def spe_emi(self, specular, emit, use_specular_table=False, use256=False):
         if (use256):
@@ -669,7 +825,7 @@ class Emitter:
                 int(emit[1]/8),
                 int(emit[2]/8),
             )
-        self.command(0x31, [
+        cmd = self.command(0x31, [
             struct.pack("<I",
             (specular[0] & 0x1F) +
             ((specular[1] & 0x1F) << 5) +
@@ -680,6 +836,7 @@ class Emitter:
             ((emit[2] & 0x1F) << 26))
         ])
         self.cycles += 4
+        return cmd
 
     def push(self):
         self.command(0x11)
@@ -737,9 +894,10 @@ class Emitter:
             ((format & 0x7) << 26) +
             ((palette_transparency & 0x1) << 29) +
             ((transform_mode & 0x3) << 30))
-        self.command(0x2A, [
+        cmd = self.command(0x2A, [
             struct.pack("<I",attr)])
         self.cycles += 1
+        return cmd
 
 
     def texpllt_base(self, offset, texture_format):
@@ -748,6 +906,7 @@ class Emitter:
         else:
             offset = offset >> 16
 
-        self.command(0x2B, [
+        cmd = self.command(0x2B, [
             struct.pack("<I", (offset & 0xFFF))])
         self.cycles += 1
+        return cmd
