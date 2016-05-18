@@ -215,16 +215,16 @@ def write_vertex(gx, location, scale_factor, vtx10=False):
     else:
         gx.vtx_16(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
 
+def determine_scale_factor(model):
+    scale_factor = 1.0
+    bb = model.bounding_box()
+    largest_coordinate = max(abs(bb["wx"]), abs(bb["wy"]), abs(bb["wz"]))
+
+    if largest_coordinate > 7.9:
+        scale_factor = 7.9 / largest_coordinate
+    return scale_factor
+
 class Writer:
-    def determineScaleFactor(self, model):
-        scale_factor = 1.0
-        bb = model.bounding_box()
-        largest_coordinate = max(abs(bb["wx"]), abs(bb["wy"]), abs(bb["wz"]))
-
-        if largest_coordinate > 7.9:
-            scale_factor = 7.9 / largest_coordinate
-        return scale_factor
-
     def setup_sane_defaults(self, gx):
         # todo: figure out light offsets, if we ever want to have
         # dynamic scene lights and stuff with vertex colors
@@ -344,7 +344,7 @@ class Writer:
         self.group_offsets = {}
         self.texture_offsets = {}
 
-        self.scale_factor = self.determineScaleFactor(model)
+        self.scale_factor = determine_scale_factor(model)
 
         gx.push()
         gx.mtx_mult_4x4(model.global_matrix)
