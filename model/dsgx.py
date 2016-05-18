@@ -224,27 +224,27 @@ def determine_scale_factor(model):
         scale_factor = 7.9 / largest_coordinate
     return scale_factor
 
+def write_sane_defaults(gx):
+    # todo: figure out light offsets, if we ever want to have
+    # dynamic scene lights and stuff with vertex colors
+    gx.color(64, 64, 64, True) #use256 mode
+    gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
+
+    # default material, if no other material gets specified
+    default_diffuse_color = (192,192,192)
+    default_ambient_color = (32,32,32)
+    set_vertex_color = False
+    use_256_colors = True
+    gx.dif_amb(default_diffuse_color, default_ambient_color, set_vertex_color,
+               use_256_colors)
+
+def start_polygon_list(gx, points_per_polygon):
+    if (points_per_polygon == 3):
+        gx.begin_vtxs(gx.vtxs_triangle)
+    if (points_per_polygon == 4):
+        gx.begin_vtxs(gx.vtxs_quad)
+
 class Writer:
-    def setup_sane_defaults(self, gx):
-        # todo: figure out light offsets, if we ever want to have
-        # dynamic scene lights and stuff with vertex colors
-        gx.color(64, 64, 64, True) #use256 mode
-        gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
-
-        # default material, if no other material gets specified
-        gx.dif_amb(
-            (192,192,192), # diffuse
-            (32,32,32),    # ambient fanciness
-            False,         # setVertexColor (not sure)
-            True           # use256
-        )
-
-    def start_polygon_list(self, gx, points_per_polygon):
-        if (points_per_polygon == 3):
-            gx.begin_vtxs(gx.vtxs_triangle)
-        if (points_per_polygon == 4):
-            gx.begin_vtxs(gx.vtxs_quad)
-
     def process_monogroup_faces(self, gx, model, vtx10=False):
         #process faces that all belong to one vertex group (simple case)
         current_material = None
@@ -262,7 +262,7 @@ class Writer:
             gx.mtx_mult_4x4(euclid.Matrix4())
 
             for polytype in range(3,5):
-                self.start_polygon_list(gx, polytype)
+                start_polygon_list(gx, polytype)
 
                 for face in model.ActiveMesh().polygons:
                     if (face.vertexGroup() == group and not face.isMixed() and
@@ -271,7 +271,7 @@ class Writer:
                             current_material = face.material
                             write_face_attributes(gx, face, model, self.texture_offsets)
                             # on material edges, we need to start a new list
-                            self.start_polygon_list(gx, polytype)
+                            start_polygon_list(gx, polytype)
                         if not face.smooth_shading:
                             gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
                         for p in range(len(face.vertices)):
@@ -294,14 +294,14 @@ class Writer:
         # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
         current_material = None
         for polytype in range(3,5):
-            self.start_polygon_list(gx, polytype)
+            start_polygon_list(gx, polytype)
             for face in model.ActiveMesh().polygons:
                 if len(face.vertices) == polytype and face.isMixed():
                     if current_material != face.material:
                         current_material = face.material
                         write_face_attributes(gx, face, model, self.texture_offsets)
                         # on material edges, we need to start a new list
-                        self.start_polygon_list(gx, polytype)
+                        start_polygon_list(gx, polytype)
                     if not face.smooth_shading:
                         gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
                     for p in range(len(face.vertices)):
@@ -339,7 +339,7 @@ class Writer:
     def output_active_mesh(self, fp, model, vtx10=False):
         gx = Emitter()
 
-        self.setup_sane_defaults(gx)
+        write_sane_defaults(gx)
 
         self.group_offsets = {}
         self.texture_offsets = {}
