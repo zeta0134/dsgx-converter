@@ -70,24 +70,6 @@ def to_dsgx_string(string):
     string = "" if string == None else string
     return struct.pack("<31sx", string.encode('ascii'))
 
-@reconcile(to_dsgx_string)
-def dsgx_string(str):
-    if str == None:
-        str = ""
-    #DSGX strings are all, for sanity and word alignment, 32 characters long exactly, and null-terminated.
-    #this means that any longer strings need to be truncated, and any shorter strings need to be
-    #padded with 0 bytes in the output.
-    output = bytes()
-    for i in range(31):
-        if i >= len(str):
-            output += struct.pack("<x")
-        else:
-            output += struct.pack("<c",str[i].encode('ascii'))
-    #force null terminattion
-    output += struct.pack("<x")
-
-    return output
-
 def parse_material_flags_new(material_name):
     """Extract the contents of flags embedded into the material_name.
 
@@ -454,7 +436,7 @@ class Writer:
 
     def output_active_bounding_sphere(self, fp, model):
         bsph = bytes()
-        bsph += dsgx_string(model.active_mesh)
+        bsph += to_dsgx_string(model.active_mesh)
         sphere = model.bounding_sphere()
         bsph += struct.pack("<iiii", to_fixed_point(sphere[0].x), to_fixed_point(sphere[0].z), to_fixed_point(sphere[0].y * -1), to_fixed_point(sphere[1]))
         log.debug("Bounding Sphere:")
@@ -490,12 +472,12 @@ class Writer:
 
         gx.pop() # mtx scale
 
-        fp.write(wrap_chunk("DSGX", dsgx_string(model.active_mesh) + gx.write()))
+        fp.write(wrap_chunk("DSGX", to_dsgx_string(model.active_mesh) + gx.write()))
         self.output_active_bounding_sphere(fp, model)
 
         #output the cull-cost for the object
         log.debug("Cycles to Draw %s: %d", model.active_mesh, gx.cycles)
-        fp.write(wrap_chunk("COST", dsgx_string(model.active_mesh) +
+        fp.write(wrap_chunk("COST", to_dsgx_string(model.active_mesh) +
             struct.pack("<II", model.max_cull_polys(), gx.cycles)))
 
     def output_active_bones(self, fp, model):
@@ -503,12 +485,12 @@ class Writer:
             return
         #matrix offsets for each bone
         bone = bytes()
-        bone += dsgx_string(model.active_mesh)
+        bone += to_dsgx_string(model.active_mesh)
         some_animation = model.animations[next(iter(model.animations.keys()))]
         bone += struct.pack("<I", len(some_animation.nodes.keys())) #number of bones in the file
         for node_name in sorted(some_animation.nodes.keys()):
             if node_name != "default":
-                bone += dsgx_string(node_name) #name of this bone
+                bone += to_dsgx_string(node_name) #name of this bone
                 if node_name in self.group_offsets:
                     bone += struct.pack("<I", len(self.group_offsets[node_name])) #number of copies of this matrix in the dsgx file
 
@@ -530,11 +512,11 @@ class Writer:
     def output_active_textures(self, fp, model):
         #texparam offsets for each texture
         txtr = bytes()
-        txtr += dsgx_string(model.active_mesh)
+        txtr += to_dsgx_string(model.active_mesh)
         txtr += struct.pack("<I", len(self.texture_offsets))
         log.debug("Total number of textures: %d", len(self.texture_offsets))
         for texture in sorted(self.texture_offsets):
-            txtr += dsgx_string(texture) #name of this texture
+            txtr += to_dsgx_string(texture) #name of this texture
 
             txtr += struct.pack("<I", len(self.texture_offsets[texture])) #number of references to this texture in the dsgx file
 
@@ -550,7 +532,7 @@ class Writer:
         #animation data!
         for animation in model.animations:
             bani = bytes()
-            bani += dsgx_string(animation)
+            bani += to_dsgx_string(animation)
             bani += struct.pack("<I", model.animations[animation].length)
             log.debug("Writing animation data: %s", animation)
             log.debug("Length in frames: %d", model.animations[animation].length)
