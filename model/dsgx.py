@@ -65,35 +65,6 @@ def padding_to(byte_count, alignment=WORD_SIZE_BYTES):
     """Calculate the number of bytes to pad byte_count bytes to alignment."""
     return alignment - (byte_count % alignment) if byte_count % alignment else 0
 
-@reconcile(wrap_chunk)
-def add_chunk_header(name, data):
-    assert(len(name) == 4, "Cannot write chunk: %s, wrong size for header!" % name)
-    name = [c.encode('ascii') for c in name]
-
-    chunk = []
-
-    #write the name as a non-null terminated 4-byte sequence
-    chunk.append(struct.pack("<cccc", name[0], name[1], name[2], name[3]))
-
-    #write out the length of data, in WORDS. (4-bytes per word)
-    length = len(data)
-    padding = 0
-    if length % 4 != 0:
-        padding = 4 - (length % 4)
-        length = length + padding
-    chunk.append(struct.pack("<I", int(length / 4)))
-
-    #write out the chunk data
-    chunk.append(data)
-
-    # write out any padding bytes needed to word-align this data
-    chunk.append(struct.pack("<" + "x" * padding))
-
-    log.debug("Generated Chunk: %s", name)
-    log.debug("Length: %d", int(length / 4))
-
-    return b"".join(chunk)
-
 def to_dsgx_string(string):
     """Convert string to a 32 byte null terminated C string byte string."""
     string = "" if string == None else string
@@ -491,7 +462,7 @@ class Writer:
         log.debug("Y: %f", sphere[0].y)
         log.debug("Z: %f", sphere[0].z)
         log.debug("Radius: %f", sphere[1])
-        fp.write(add_chunk_header("BSPH", bsph))
+        fp.write(wrap_chunk("BSPH", bsph))
 
     def output_active_mesh(self, fp, model, vtx10=False):
         gx = Emitter()
@@ -519,12 +490,12 @@ class Writer:
 
         gx.pop() # mtx scale
 
-        fp.write(add_chunk_header("DSGX", dsgx_string(model.active_mesh) + gx.write()))
+        fp.write(wrap_chunk("DSGX", dsgx_string(model.active_mesh) + gx.write()))
         self.output_active_bounding_sphere(fp, model)
 
         #output the cull-cost for the object
         log.debug("Cycles to Draw %s: %d", model.active_mesh, gx.cycles)
-        fp.write(add_chunk_header("COST", dsgx_string(model.active_mesh) +
+        fp.write(wrap_chunk("COST", dsgx_string(model.active_mesh) +
             struct.pack("<II", model.max_cull_polys(), gx.cycles)))
 
     def output_active_bones(self, fp, model):
@@ -554,7 +525,7 @@ class Writer:
                     log.debug("Skipping bone data for: %s", node_name)
                     log.debug("Number of offsets: 0")
                     bone += struct.pack("<I", 0)
-        fp.write(add_chunk_header("BONE", bone))
+        fp.write(wrap_chunk("BONE", bone))
 
     def output_active_textures(self, fp, model):
         #texparam offsets for each texture
@@ -573,7 +544,7 @@ class Writer:
 
             for offset in self.texture_offsets[texture]:
                 txtr += struct.pack("<I", offset)
-        fp.write(add_chunk_header("TXTR", txtr))
+        fp.write(wrap_chunk("TXTR", txtr))
 
     def output_animations(self, fp, model):
         #animation data!
@@ -598,7 +569,7 @@ class Writer:
                         bani += struct.pack("<iiii", to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l))
                         bani += struct.pack("<iiii", to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p))
                         count = count + 1
-            fp.write(add_chunk_header("BANI", bani))
+            fp.write(wrap_chunk("BANI", bani))
             log.debug("Wrote %d matricies", count)
 
     def write(self, filename, model, vtx10=False):
