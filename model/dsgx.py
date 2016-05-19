@@ -43,10 +43,6 @@ def scale_components(components, constant, cast=None):
 def to_fixed_point(float_value, fraction=12):
     return int(float_value * 2 ** fraction)
 
-@reconcile(to_fixed_point)
-def toFixed(float_value, fraction=12):
-        return int(float_value * pow(2,fraction))
-
 def wrap_chunk(name, data):
     """Convert data into the chunk format.
 
@@ -184,7 +180,7 @@ def pack_bits(*bit_value_pairs):
         mask = (bit_count << bit_count) -1
         packed_bits |= (value & mask) << lower
     return packed_bits
-    
+
 def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
     transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0):
     #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
@@ -489,7 +485,7 @@ class Writer:
         bsph = bytes()
         bsph += dsgx_string(model.active_mesh)
         sphere = model.bounding_sphere()
-        bsph += struct.pack("<iiii", toFixed(sphere[0].x), toFixed(sphere[0].z), toFixed(sphere[0].y * -1), toFixed(sphere[1]))
+        bsph += struct.pack("<iiii", to_fixed_point(sphere[0].x), to_fixed_point(sphere[0].z), to_fixed_point(sphere[0].y * -1), to_fixed_point(sphere[1]))
         log.debug("Bounding Sphere:")
         log.debug("X: %f", sphere[0].x)
         log.debug("Y: %f", sphere[0].y)
@@ -597,10 +593,10 @@ class Writer:
                             log.debug("Writing node: %s", node_name)
                         matrix = model.animations[animation].getTransform(node_name, frame)
                         #hoo boy
-                        bani += struct.pack("<iiii", toFixed(matrix.a), toFixed(matrix.b), toFixed(matrix.c), toFixed(matrix.d))
-                        bani += struct.pack("<iiii", toFixed(matrix.e), toFixed(matrix.f), toFixed(matrix.g), toFixed(matrix.h))
-                        bani += struct.pack("<iiii", toFixed(matrix.i), toFixed(matrix.j), toFixed(matrix.k), toFixed(matrix.l))
-                        bani += struct.pack("<iiii", toFixed(matrix.m), toFixed(matrix.n), toFixed(matrix.o), toFixed(matrix.p))
+                        bani += struct.pack("<iiii", to_fixed_point(matrix.a), to_fixed_point(matrix.b), to_fixed_point(matrix.c), to_fixed_point(matrix.d))
+                        bani += struct.pack("<iiii", to_fixed_point(matrix.e), to_fixed_point(matrix.f), to_fixed_point(matrix.g), to_fixed_point(matrix.h))
+                        bani += struct.pack("<iiii", to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l))
+                        bani += struct.pack("<iiii", to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p))
                         count = count + 1
             fp.write(add_chunk_header("BANI", bani))
             log.debug("Wrote %d matricies", count)
@@ -856,18 +852,18 @@ class Emitter:
     #note: expects a euclid.py matrix, any other format will not work
     def mtx_mult_4x4(self, matrix):
         self.command(0x18, [
-                struct.pack("<i",toFixed(matrix.a)), struct.pack("<i",toFixed(matrix.b)), struct.pack("<i",toFixed(matrix.c)), struct.pack("<i",toFixed(matrix.d)),
-                struct.pack("<i",toFixed(matrix.e)), struct.pack("<i",toFixed(matrix.f)), struct.pack("<i",toFixed(matrix.g)), struct.pack("<i",toFixed(matrix.h)),
-                struct.pack("<i",toFixed(matrix.i)), struct.pack("<i",toFixed(matrix.j)), struct.pack("<i",toFixed(matrix.k)), struct.pack("<i",toFixed(matrix.l)),
-                struct.pack("<i",toFixed(matrix.m)), struct.pack("<i",toFixed(matrix.n)), struct.pack("<i",toFixed(matrix.o)), struct.pack("<i",toFixed(matrix.p))
+                struct.pack("<i",to_fixed_point(matrix.a)), struct.pack("<i",to_fixed_point(matrix.b)), struct.pack("<i",to_fixed_point(matrix.c)), struct.pack("<i",to_fixed_point(matrix.d)),
+                struct.pack("<i",to_fixed_point(matrix.e)), struct.pack("<i",to_fixed_point(matrix.f)), struct.pack("<i",to_fixed_point(matrix.g)), struct.pack("<i",to_fixed_point(matrix.h)),
+                struct.pack("<i",to_fixed_point(matrix.i)), struct.pack("<i",to_fixed_point(matrix.j)), struct.pack("<i",to_fixed_point(matrix.k)), struct.pack("<i",to_fixed_point(matrix.l)),
+                struct.pack("<i",to_fixed_point(matrix.m)), struct.pack("<i",to_fixed_point(matrix.n)), struct.pack("<i",to_fixed_point(matrix.o)), struct.pack("<i",to_fixed_point(matrix.p))
             ])
         self.cycles += 35
 
     def mtx_scale(self, sx, sy, sz):
         self.command(0x1B, [
-                struct.pack("<i", toFixed(sx)),
-                struct.pack("<i", toFixed(sy)),
-                struct.pack("<i", toFixed(sz))
+                struct.pack("<i", to_fixed_point(sx)),
+                struct.pack("<i", to_fixed_point(sy)),
+                struct.pack("<i", to_fixed_point(sz))
             ])
         self.cycles += 22
 
