@@ -70,7 +70,7 @@ def to_dsgx_string(string):
     string = "" if string == None else string
     return struct.pack("<31sx", string.encode('ascii'))
 
-def parse_material_flags_new(material_name):
+def parse_material_flags(material_name):
     """Extract the contents of flags embedded into the material_name.
 
     Flags are of the format:
@@ -88,30 +88,6 @@ def parse_material_flags_new(material_name):
     flags = ((parts[0], (parts[1] if parts[1:] else True))
         for parts in flag_parts)
     return dict(flags)
-
-@reconcile(parse_material_flags_new)
-def parse_material_flags(material_name):
-    #given the name of a material, see if there are any special flags
-    #to extract. Material flags are in the format:
-    #flag=value,flag=value|name
-    #the presence of a pipe character indicates that they are flags to
-    #parse, and the flags themselves are comma separated.
-
-    sections = material_name.split("|")
-    if len(sections) == 1:
-        return {}
-
-    flags = {}
-    #split the separate flags on ","
-    for flag in sections[0].split(","):
-        #if a flag has a value, it will be preceeded by a "="
-        parts = flag.split("=")
-        flag_name = parts[0]
-        if  len(parts) > 1:
-            flags[flag_name] = parts[1]
-        else:
-            flags[flag_name] = True
-    return flags
 
 def command(command, parameters=None):
     parameters = parameters if parameters else []
