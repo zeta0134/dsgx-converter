@@ -35,7 +35,9 @@ def flatten(container):
         else:
             yield i
 
-def scale_components(components, constant):
+def scale_components(components, constant, cast=None):
+    if cast:
+        return [cast(component * constant) for component in components]
     return [component * constant for component in components]
 
 def to_fixed_point(float_value, fraction=12):
@@ -166,37 +168,49 @@ def command(command, parameters=None):
     parameters = parameters if parameters else []
     return dict(instruction=command, params=parameters)
 
+def texture_size_shift(size):
+    shift = 0
+    while 8 < size:
+        size >>= 1
+        shift += 1;
+    return shift
+
+def pack_bits(*bit_value_pairs):
+    packed_bits = 0
+    for pair in bit_value_pairs:
+        key, value = pair
+        lower, upper = (key, key) if isinstance(key, int) else key
+        bit_count = upper - lower + 1
+        mask = (bit_count << bit_count) -1
+        packed_bits |= (value & mask) << lower
+    return packed_bits
+    
 def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
     transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0):
     #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
     #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
-    width_index = 0
-    while width > 8:
-        width = width >> 1
-        width_index += 1;
-    height_index = 0
-    while height > 8:
-        height = height >> 1
-        height_index += 1;
 
-    attr = (
-        (int(offset / 8) & 0xFFFF) +
-        ((u_repeat & 0x1) << 16) +
-        ((v_repeat & 0x1) << 17) +
-        ((u_flip & 0x1) << 18) +
-        ((v_flip & 0x1) << 19) +
-        ((width_index & 0x7) << 20) +
-        ((height_index & 0x7) << 23) +
-        ((format & 0x7) << 26) +
-        ((palette_transparency & 0x1) << 29) +
-        ((transform_mode & 0x3) << 30))
+    width_index = texture_size_shift(width)
+    height_index = texture_size_shift(height)
+
+    attr = pack_bits(
+        ((0, 15), int(offset / 8)),
+        (16, u_repeat),
+        (17, v_repeat),
+        (18, u_flip),
+        (19, v_flip),
+        ((20, 22), width_index),
+        ((23, 25), height_index),
+        ((26, 28), format),
+        (29, palette_transparency),
+        ((30, 31), transform_mode))
     return command(0x2A, [struct.pack("<I", attr)])
     # self.cycles += 1
 
 def texpllt_base(offset, texture_format):
     FOUR_COLOR_PALETTE = 2
     shift = 8 if texture_format == FOUR_COLOR_PALETTE else 16
-    return command(0x2B, [struct.pack("<I", (offset >> shift) & 0xFFF)])
+    return command(0x2B, [struct.pack("<I", pack_bits(((0, 12), offset >> shift) ))])
     # self.cycles += 1
 
 def generate_texture_attributes(gx, texture_name, material, texture_offsets_list):
@@ -231,59 +245,59 @@ polygon_depth_less = 0
 polygon_depth_equal = 1
 def polygon_attr(light0=0, light1=0, light2=0, light3=0,
     mode=polygon_mode_modulation, front=1, back=0, new_depth=0,
-    farplane_intersecting=1, dot_polygons=1, depth_test=polygon_depth_less,
+    farplane_intersecting=1, dot_polygons=0, depth_test=polygon_depth_less,
     fog_enable=1, alpha=31, polygon_id=0):
 
-    attr = ((light0 & 0x1 << 0) +
-        ((light1 & 0x1) << 1) +
-        ((light2 & 0x1) << 2) +
-        ((light3 & 0x1) << 3) +
-        ((mode & 0x3) << 4)  +
-        ((back & 0x1) << 6) +
-        ((front & 0x1) << 7) +
-        ((new_depth & 0x1) << 11) +  # for translucent polygons
-        ((farplane_intersecting & 0x1) << 12) +
-        ((depth_test & 0x1) << 14) +
-        ((fog_enable & 0x1) << 15) +
-        ((alpha & 0x1F) << 16) +  # 0-31
-        ((polygon_id & 0x3F) << 24))
+    attr = pack_bits(
+        (0, light0),
+        (1, light1),
+        (2, light2),
+        (3, light3),
+        ((4, 5), mode),
+        (6, back),
+        (7, front),
+        (11, new_depth),
+        (12, farplane_intersecting),
+        (13, dot_polygons),
+        (14, depth_test),
+        (15, fog_enable),
+        ((16, 20), alpha),
+        ((24, 29), polygon_id))
 
     return command(0x29, [struct.pack("<I", attr)])
     # self.cycles += 1
 
+_24bit_to_16bit = lambda components: scale_components(components, 1 / 8, int)
+
 def dif_amb(diffuse, ambient, setvertex=False, use256=False):
     if use256:
         # DS colors are in 16bit mode (5 bits per value)
-        diffuse = [int(c) for c in scale_components(diffuse, 1/8)]
-        ambient = [int(c) for c in scale_components(ambient, 1/8)]
-    cmd = command(0x30, [
-        struct.pack("<I",
-        (diffuse[0] & 0x1F) +
-        ((diffuse[1] & 0x1F) << 5) +
-        ((diffuse[2] & 0x1F) << 10) +
-        ((setvertex & 0x1) << 15) +
-        ((ambient[0] & 0x1F) << 16) +
-        ((ambient[1] & 0x1F) << 21) +
-        ((ambient[2] & 0x1F) << 26))
-    ])
+        diffuse = _24bit_to_16bit(diffuse)
+        ambient = _24bit_to_16bit(ambient)
+    cmd = command(0x30, [struct.pack("<I", pack_bits(
+        ((0, 4), diffuse[0]),
+        ((5, 9), diffuse[1]),
+        ((10, 14), diffuse[2]),
+        (15, setvertex),
+        ((16, 20), ambient[0]),
+        ((21, 25), ambient[1]),
+        ((26, 30), ambient[2])))])
     # self.cycles += 4
     return cmd
 
 def spe_emi(specular, emit, use_specular_table=False, use256=False):
     if use256:
         # DS colors are in 16bit mode (5 bits per value)
-        specular = [int(c) for c in scale_components(specular, 1/8)]
-        emit = [int(c) for c in scale_components(emit, 1/8)]
-    cmd = command(0x31, [
-        struct.pack("<I",
-        (specular[0] & 0x1F) +
-        ((specular[1] & 0x1F) << 5) +
-        ((specular[2] & 0x1F) << 10) +
-        ((use_specular_table & 0x1) << 15) +
-        ((emit[0] & 0x1F) << 16) +
-        ((emit[1] & 0x1F) << 21) +
-        ((emit[2] & 0x1F) << 26))
-    ])
+        specular = _24bit_to_16bit(specular)
+        emit = _24bit_to_16bit(emit)
+    cmd = command(0x31, [struct.pack("<I", pack_bits(
+        ((0, 4), specular[0]),
+        ((5, 9), specular[1]),
+        ((10, 14), specular[2]),
+        (15, use_specular_table),
+        ((16, 20), emit[0]),
+        ((21, 25), emit[1]),
+        ((26, 30), emit[2])))])
     # self.cycles += 4
     return cmd
 
@@ -299,9 +313,11 @@ def generate_face_attributes(gx, face, model, texture_offsets_list):
         CLEAR_TEXTURE_PARAMETERS)
     polygon_attributes = polygon_attr(light0=1, light1=1, light2=1, light3=1,
         alpha=int(flags.get("alpha", 31)), polygon_id=int(flags.get("id", 0)))
+    material_properties = (dif_amb(scale(material.diffuse),
+        scale(material.ambient), use256=True), spe_emi(scale(material.specular),
+        scale(material.emit), use256=True))
     return list(flatten([texture_attributes,  polygon_attributes,
-        dif_amb(scale(material.diffuse), scale(material.ambient), use256=True),
-        spe_emi(scale(material.specular), scale(material.emit), use256=True)]))
+        material_properties]))
 
 @reconcile(generate_face_attributes)
 def write_face_attributes(gx, face, model, texture_offsets_list):
