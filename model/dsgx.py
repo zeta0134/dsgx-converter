@@ -11,7 +11,8 @@ complex padding rules.
 import logging, struct
 from collections import defaultdict
 import euclid3 as euclid
-from model.gx import Emitter, to_fixed_point
+import model.geometry_command as gc
+from model.geometry_command import to_fixed_point
 
 log = logging.getLogger()
 WORD_SIZE_BYTES = 4
@@ -35,11 +36,6 @@ def flatten(container):
                 yield j
         else:
             yield i
-
-def scale_components(components, constant, cast=None):
-    if cast:
-        return [cast(component * constant) for component in components]
-    return [component * constant for component in components]
 
 def wrap_chunk(name, data):
     """Convert data into the chunk format.
@@ -87,55 +83,6 @@ def parse_material_flags(material_name):
         for parts in flag_parts)
     return dict(flags)
 
-def command(command, parameters=None):
-    parameters = parameters if parameters else []
-    return dict(instruction=command, params=parameters)
-
-def texture_size_shift(size):
-    shift = 0
-    while 8 < size:
-        size >>= 1
-        shift += 1;
-    return shift
-
-def pack_bits(*bit_value_pairs):
-    packed_bits = 0
-    for pair in bit_value_pairs:
-        key, value = pair
-        lower, upper = (key, key) if isinstance(key, int) else key
-        bit_count = upper - lower + 1
-        mask = (bit_count << bit_count) -1
-        packed_bits |= (value & mask) << lower
-    return packed_bits
-
-def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
-    transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0):
-    #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
-    #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
-
-    width_index = texture_size_shift(width)
-    height_index = texture_size_shift(height)
-
-    attr = pack_bits(
-        ((0, 15), int(offset / 8)),
-        (16, u_repeat),
-        (17, v_repeat),
-        (18, u_flip),
-        (19, v_flip),
-        ((20, 22), width_index),
-        ((23, 25), height_index),
-        ((26, 28), format),
-        (29, palette_transparency),
-        ((30, 31), transform_mode))
-    return command(0x2A, [struct.pack("<I", attr)])
-    # self.cycles += 1
-
-def texpllt_base(offset, texture_format):
-    FOUR_COLOR_PALETTE = 2
-    shift = 8 if texture_format == FOUR_COLOR_PALETTE else 16
-    return command(0x2B, [struct.pack("<I", pack_bits(((0, 12), offset >> shift) ))])
-    # self.cycles += 1
-
 def generate_texture_attributes(gx, texture_name, material, texture_offsets_list):
     DEFAULT_OFFSET = 256 * 1024
     DIRECT_TEXTURE = 7
@@ -146,8 +93,8 @@ def generate_texture_attributes(gx, texture_name, material, texture_offsets_list
     # Since the location and format of the texture will only be known at
     # runtime, use zero for the offset and format. It will be filled in by the
     # engine during asset loading.
-    return [teximage_param(width, height, format=DIRECT_TEXTURE,
-        offset=DEFAULT_OFFSET), texpllt_base(0, 0)]
+    return [gc.teximage_param(width, height, format=DIRECT_TEXTURE,
+        offset=DEFAULT_OFFSET), gc.texpllt_base(0, 0)]
 
 @reconcile(generate_texture_attributes)
 def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
@@ -159,85 +106,20 @@ def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
                                # be filled in by the engine during asset
                                # loading.
 
-polygon_mode_modulation = 0
-polygon_mode_normal = 0
-polygon_mode_decal = 1
-polygon_mode_toon_highlight = 2
-polygon_mode_shadow = 3
-polygon_depth_less = 0
-polygon_depth_equal = 1
-def polygon_attr(light0=0, light1=0, light2=0, light3=0,
-    mode=polygon_mode_modulation, front=1, back=0, new_depth=0,
-    farplane_intersecting=1, dot_polygons=0, depth_test=polygon_depth_less,
-    fog_enable=1, alpha=31, polygon_id=0):
-
-    attr = pack_bits(
-        (0, light0),
-        (1, light1),
-        (2, light2),
-        (3, light3),
-        ((4, 5), mode),
-        (6, back),
-        (7, front),
-        (11, new_depth),
-        (12, farplane_intersecting),
-        (13, dot_polygons),
-        (14, depth_test),
-        (15, fog_enable),
-        ((16, 20), alpha),
-        ((24, 29), polygon_id))
-
-    return command(0x29, [struct.pack("<I", attr)])
-    # self.cycles += 1
-
-_24bit_to_16bit = lambda components: scale_components(components, 1 / 8, int)
-
-def dif_amb(diffuse, ambient, setvertex=False, use256=False):
-    if use256:
-        # DS colors are in 16bit mode (5 bits per value)
-        diffuse = _24bit_to_16bit(diffuse)
-        ambient = _24bit_to_16bit(ambient)
-    cmd = command(0x30, [struct.pack("<I", pack_bits(
-        ((0, 4), diffuse[0]),
-        ((5, 9), diffuse[1]),
-        ((10, 14), diffuse[2]),
-        (15, setvertex),
-        ((16, 20), ambient[0]),
-        ((21, 25), ambient[1]),
-        ((26, 30), ambient[2])))])
-    # self.cycles += 4
-    return cmd
-
-def spe_emi(specular, emit, use_specular_table=False, use256=False):
-    if use256:
-        # DS colors are in 16bit mode (5 bits per value)
-        specular = _24bit_to_16bit(specular)
-        emit = _24bit_to_16bit(emit)
-    cmd = command(0x31, [struct.pack("<I", pack_bits(
-        ((0, 4), specular[0]),
-        ((5, 9), specular[1]),
-        ((10, 14), specular[2]),
-        (15, use_specular_table),
-        ((16, 20), emit[0]),
-        ((21, 25), emit[1]),
-        ((26, 30), emit[2])))])
-    # self.cycles += 4
-    return cmd
-
-CLEAR_TEXTURE_PARAMETERS = teximage_param(0, 0, 0, 0)
+CLEAR_TEXTURE_PARAMETERS = gc.teximage_param(0, 0, 0, 0)
 
 def generate_face_attributes(gx, face, model, texture_offsets_list):
     material = model.materials[face.material]
     flags = parse_material_flags(face.material)
-    scale = lambda components: scale_components(components, 255)
+    scale = lambda components: gc.scale_components(components, 255)
 
     texture_attributes = (generate_texture_attributes(gx, material.texture,
         material, texture_offsets_list) if material.texture else
         CLEAR_TEXTURE_PARAMETERS)
-    polygon_attributes = polygon_attr(light0=1, light1=1, light2=1, light3=1,
+    polygon_attributes = gc.polygon_attr(light0=1, light1=1, light2=1, light3=1,
         alpha=int(flags.get("alpha", 31)), polygon_id=int(flags.get("id", 0)))
-    material_properties = (dif_amb(scale(material.diffuse),
-        scale(material.ambient), use256=True), spe_emi(scale(material.specular),
+    material_properties = (gc.dif_amb(scale(material.diffuse),
+        scale(material.ambient), use256=True), gc.spe_emi(scale(material.specular),
         scale(material.emit), use256=True))
     return list(flatten([texture_attributes,  polygon_attributes,
         material_properties]))
@@ -288,16 +170,7 @@ def write_face_attributes(gx, face, model, texture_offsets_list):
     return gx_commands
 
 def generate_normal(gx, normal_vector):
-    return normal(*normal_vector)
-
-def normal(x, y, z):
-    return command(0x21, [
-        struct.pack("<I",
-        (int((x*0.95) * 2**9) & 0x3FF) +
-        ((int((y*0.95) * 2**9) & 0x3FF) << 10) +
-        ((int((z*0.95) * 2**9) & 0x3FF) << 20))
-    ])
-    # self.cycles += 9 # This is assuming just ONE light is turned on
+    return gc.normal(*normal_vector)
 
 @reconcile(generate_normal)
 def write_normal(gx, normal):
@@ -307,38 +180,8 @@ def write_normal(gx, normal):
         return gx.normal(*normal)
 
 def generate_vertex(gx, location, scale_factor, vtx10=False):
-    vtx = vtx_10 if vtx10 else vtx_16
+    vtx = gc.vtx_10 if vtx10 else gc.vtx_16
     return vtx(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
-
-def vtx_10(x, y, z):
-    # same as vtx_16, but using 10bit coordinates with 6bit fractional bits;
-    # this ends up being somewhat less accurate, but consumes one fewer
-    # parameter in the list, and costs one fewer GPU cycle to draw.
-
-    return command(0x24, [
-        struct.pack("<I",
-        (int(x * 2**6) & 0x3FF) |
-        ((int(y * 2**6) & 0x3FF) << 10) |
-        ((int(z * 2**6) & 0x3FF) << 20))
-    ])
-    # self.cycles += 8
-
-def vtx_16(x, y, z):
-    # given vertex coordinates as floats, convert them into
-    # 16bit fixed point numerals with 12bit fractional parts,
-    # and pack them into two commands.
-
-    # note: this command is ignoring overflow completely, do note that
-    # values outside of the range (approx. -8 to 8) will produce strange
-    # results.
-
-    return command(0x23, [
-        struct.pack("<I",
-        (int(x * 2**12) & 0xFFFF) |
-        ((int(y * 2**12) & 0xFFFF) << 16)),
-        struct.pack("<I",(int(z * 2**12) & 0xFFFF))
-    ])
-    # self.cycles += 9
 
 @reconcile(generate_vertex)
 def write_vertex(gx, location, scale_factor, vtx10=False):
@@ -368,23 +211,9 @@ def generate_defaults(gx):
     # default material, if no other material gets specified
     default_diffuse_color = 192, 192, 192
     default_ambient_color = 32, 32, 32
-    return [color(64, 64, 64, use256=True),
-        polygon_attr(light0=1, light1=1, light2=1, light3=1),
-        dif_amb(default_diffuse_color, default_ambient_color, use256=True)]
-
-def color(red, green, blue, use256=False):
-    if use256:
-        # DS colors are in 16bit mode (5 bits per value)
-        red = int(red/8)
-        blue = int(blue/8)
-        green = int(green/8)
-    return command(0x20, [
-        struct.pack("<I",
-        (red & 0x1F) +
-        ((green & 0x1F) << 5) +
-        ((blue & 0x1F) << 10))
-    ])
-    # self.cycles += 1
+    return [gc.color(64, 64, 64, use256=True),
+        gc.polygon_attr(light0=1, light1=1, light2=1, light3=1),
+        gc.dif_amb(default_diffuse_color, default_ambient_color, use256=True)]
 
 @reconcile(generate_defaults)
 def write_sane_defaults(gx):
@@ -407,11 +236,7 @@ VTXS_TRIANGLE = 0
 VTXS_QUAD = 1
 def generate_polygon_list_start(gx, points_per_polygon):
     assert points_per_polygon in (3, 4), "Invalid number of points in polygon: %d" % points_per_polygon
-    return begin_vtxs(VTXS_TRIANGLE if points_per_polygon == 3 else VTXS_QUAD)
-
-def begin_vtxs(format):
-    return command(0x40, [struct.pack("<I", format & 0x3)])
-    # self.cycles += 1
+    return gc.begin_vtxs(VTXS_TRIANGLE if points_per_polygon == 3 else VTXS_QUAD)
 
 @reconcile(generate_polygon_list_start)
 def start_polygon_list(gx, points_per_polygon):
@@ -513,7 +338,7 @@ class Writer:
         fp.write(wrap_chunk("BSPH", bsph))
 
     def output_active_mesh(self, fp, model, vtx10=False):
-        gx = Emitter()
+        gx = gc.Emitter()
 
         write_sane_defaults(gx)
 
