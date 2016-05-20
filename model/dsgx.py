@@ -190,15 +190,15 @@ def write_vertex(gx, location, scale_factor, vtx10=False):
     else:
         return gx.vtx_16(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
 
-def determine_scale_factor_new(model):
-    box = model.bounding_box()
+def determine_scale_factor_new(mesh):
+    box = mesh.bounding_box()
     largest_coordinate = max(abs(box["wx"]), abs(box["wy"]), abs(box["wz"]))
     return 1.0 if largest_coordinate <= 7.9 else 7.9 / largest_coordinate
 
 @reconcile(determine_scale_factor_new)
-def determine_scale_factor(model):
+def determine_scale_factor(mesh):
     scale_factor = 1.0
-    bb = model.bounding_box()
+    bb = mesh.bounding_box()
     largest_coordinate = max(abs(bb["wx"]), abs(bb["wy"]), abs(bb["wz"]))
 
     if largest_coordinate > 7.9:
@@ -245,90 +245,90 @@ def start_polygon_list(gx, points_per_polygon):
     if (points_per_polygon == 4):
         return gx.begin_vtxs(gx.vtxs_quad)
 
-class Writer:
-    def process_monogroup_faces(self, gx, model, vtx10=False):
-        #process faces that all belong to one vertex group (simple case)
-        current_material = None
-        for group in model.groups:
-            gx.push()
+def process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
+    #process faces that all belong to one vertex group (simple case)
+    current_material = None
+    for group in model.groups:
+        gx.push()
 
-            #store this transformation offset for later
-            if group != "default":
-                if not group in self.group_offsets:
-                    self.group_offsets[group] = []
-                self.group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+        #store this transformation offset for later
+        if group != "default":
+            if not group in group_offsets:
+                group_offsets[group] = []
+            group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
-            #emit a default matrix for this group; this makes the T-pose work
-            #if no animation is selected
-            gx.mtx_mult_4x4(euclid.Matrix4())
+        #emit a default matrix for this group; this makes the T-pose work
+        #if no animation is selected
+        gx.mtx_mult_4x4(euclid.Matrix4())
 
-            for polytype in range(3,5):
-                start_polygon_list(gx, polytype)
-
-                for face in model.ActiveMesh().polygons:
-                    if (face.vertexGroup() == group and not face.isMixed() and
-                            len(face.vertices) == polytype):
-                        if current_material != face.material:
-                            current_material = face.material
-                            write_face_attributes(gx, face, model, self.texture_offsets)
-                            # on material edges, we need to start a new list
-                            start_polygon_list(gx, polytype)
-                        if not face.smooth_shading:
-                            gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
-                        for p in range(len(face.vertices)):
-                            # uv coordinate
-                            if model.materials[current_material].texture:
-                                # two things here:
-                                # 1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
-                                #    we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
-                                # 2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
-                                #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
-                                size = model.materials[face.material].texture_size
-                                gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                            if face.smooth_shading:
-                                write_normal(gx, face.vertex_normals[p])
-                            vertex_location = model.ActiveMesh().vertices[face.vertices[p]].location
-                            write_vertex(gx, vertex_location, self.scale_factor, vtx10)
-            gx.pop()
-
-    def process_polygroup_faces(self, gx, model, vtx10=False):
-        # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
-        current_material = None
         for polytype in range(3,5):
             start_polygon_list(gx, polytype)
-            for face in model.ActiveMesh().polygons:
-                if len(face.vertices) == polytype and face.isMixed():
+
+            for face in mesh.polygons:
+                if (face.vertexGroup() == group and not face.isMixed() and
+                        len(face.vertices) == polytype):
                     if current_material != face.material:
                         current_material = face.material
-                        write_face_attributes(gx, face, model, self.texture_offsets)
+                        write_face_attributes(gx, face, model, texture_offsets)
                         # on material edges, we need to start a new list
                         start_polygon_list(gx, polytype)
                     if not face.smooth_shading:
                         gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
                     for p in range(len(face.vertices)):
-                        point_index = face.vertices[p]
-                        gx.push()
-
-                        # store this transformation offset for later
-                        group = model.ActiveMesh().vertices[point_index].group
-                        if not group in self.group_offsets:
-                            self.group_offsets[group] = []
-                        # skip over the command itself; we need a reference to
-                        # the parameters
-                        self.group_offsets[group].append(gx.offset + 1)
-
-                        gx.mtx_mult_4x4(euclid.Matrix4())
-
+                        # uv coordinate
+                        if model.materials[current_material].texture:
+                            # two things here:
+                            # 1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
+                            #    we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
+                            # 2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
+                            #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
+                            size = model.materials[face.material].texture_size
+                            gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
                         if face.smooth_shading:
                             write_normal(gx, face.vertex_normals[p])
-                        vertex_location = model.ActiveMesh().vertices[point_index].location
-                        write_vertex(gx, vertex_location, self.scale_factor, vtx10)
-                        gx.pop()
+                        vertex_location = mesh.vertices[face.vertices[p]].location
+                        write_vertex(gx, vertex_location, scale_factor, vtx10)
+        gx.pop()
 
-    def output_active_bounding_sphere(self, fp, model):
+def process_polygroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
+    # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
+    current_material = None
+    for polytype in range(3,5):
+        start_polygon_list(gx, polytype)
+        for face in mesh.polygons:
+            if len(face.vertices) == polytype and face.isMixed():
+                if current_material != face.material:
+                    current_material = face.material
+                    write_face_attributes(gx, face, model, texture_offsets)
+                    # on material edges, we need to start a new list
+                    start_polygon_list(gx, polytype)
+                if not face.smooth_shading:
+                    gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
+                for p in range(len(face.vertices)):
+                    point_index = face.vertices[p]
+                    gx.push()
+
+                    # store this transformation offset for later
+                    group = mesh.vertices[point_index].group
+                    if not group in group_offsets:
+                        group_offsets[group] = []
+                    # skip over the command itself; we need a reference to
+                    # the parameters
+                    group_offsets[group].append(gx.offset + 1)
+
+                    gx.mtx_mult_4x4(euclid.Matrix4())
+
+                    if face.smooth_shading:
+                        write_normal(gx, face.vertex_normals[p])
+                    vertex_location = mesh.vertices[point_index].location
+                    write_vertex(gx, vertex_location, scale_factor, vtx10)
+                    gx.pop()
+
+class Writer:
+    def output_bounding_sphere(self, fp, mesh):
         bsph = bytes()
-        bsph += to_dsgx_string(model.active_mesh)
-        sphere = model.bounding_sphere()
+        bsph += to_dsgx_string(mesh.name)
+        sphere = mesh.bounding_sphere()
         bsph += struct.pack("<iiii", to_fixed_point(sphere[0].x), to_fixed_point(sphere[0].z), to_fixed_point(sphere[0].y * -1), to_fixed_point(sphere[1]))
         log.debug("Bounding Sphere:")
         log.debug("X: %f", sphere[0].x)
@@ -337,59 +337,55 @@ class Writer:
         log.debug("Radius: %f", sphere[1])
         fp.write(wrap_chunk("BSPH", bsph))
 
-    def output_active_mesh(self, fp, model, vtx10=False):
+    def output_mesh(self, fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
         gx = gc.Emitter()
 
         write_sane_defaults(gx)
 
-        self.group_offsets = {}
-        self.texture_offsets = defaultdict(list)
-
-        self.scale_factor = determine_scale_factor(model)
+        scale_factor = determine_scale_factor(mesh)
 
         gx.push()
         gx.mtx_mult_4x4(model.global_matrix)
 
-        if self.scale_factor != 1.0:
-            inverse_scale = 1 / self.scale_factor
+        if scale_factor != 1.0:
+            inverse_scale = 1 / scale_factor
             gx.mtx_scale(inverse_scale, inverse_scale, inverse_scale)
 
         log.debug("Global Matrix: ")
         log.debug(model.global_matrix)
 
-
-        self.process_monogroup_faces(gx, model, vtx10)
-        self.process_polygroup_faces(gx, model, vtx10)
+        process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+        process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
 
         gx.pop() # mtx scale
 
-        fp.write(wrap_chunk("DSGX", to_dsgx_string(model.active_mesh) + gx.write()))
-        self.output_active_bounding_sphere(fp, model)
+        fp.write(wrap_chunk("DSGX", to_dsgx_string(mesh.name) + gx.write()))
+        self.output_bounding_sphere(fp, mesh)
 
         #output the cull-cost for the object
-        log.debug("Cycles to Draw %s: %d", model.active_mesh, gx.cycles)
-        fp.write(wrap_chunk("COST", to_dsgx_string(model.active_mesh) +
-            struct.pack("<II", model.max_cull_polys(), gx.cycles)))
+        log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
+        fp.write(wrap_chunk("COST", to_dsgx_string(mesh.name) +
+            struct.pack("<II", mesh.max_cull_polys(), gx.cycles)))
 
-    def output_active_bones(self, fp, model):
+    def output_bones(self, fp, model, mesh, group_offsets):
         if not model.animations:
             return
         #matrix offsets for each bone
         bone = bytes()
-        bone += to_dsgx_string(model.active_mesh)
+        bone += to_dsgx_string(mesh.name)
         some_animation = model.animations[next(iter(model.animations.keys()))]
         bone += struct.pack("<I", len(some_animation.nodes.keys())) #number of bones in the file
         for node_name in sorted(some_animation.nodes.keys()):
             if node_name != "default":
                 bone += to_dsgx_string(node_name) #name of this bone
-                if node_name in self.group_offsets:
-                    bone += struct.pack("<I", len(self.group_offsets[node_name])) #number of copies of this matrix in the dsgx file
+                if node_name in group_offsets:
+                    bone += struct.pack("<I", len(group_offsets[node_name])) #number of copies of this matrix in the dsgx file
 
                     #debug
                     log.debug("Writing bone data for: %s", node_name)
-                    log.debug("Number of offsets: %d", len(self.group_offsets[node_name]))
+                    log.debug("Number of offsets: %d", len(group_offsets[node_name]))
 
-                    for offset in self.group_offsets[node_name]:
+                    for offset in group_offsets[node_name]:
                         log.debug("Offset: %d", offset)
                         bone += struct.pack("<I", offset)
                 else:
@@ -400,22 +396,22 @@ class Writer:
                     bone += struct.pack("<I", 0)
         fp.write(wrap_chunk("BONE", bone))
 
-    def output_active_textures(self, fp, model):
+    def output_textures(self, fp, model, mesh, texture_offsets):
         #texparam offsets for each texture
         txtr = bytes()
-        txtr += to_dsgx_string(model.active_mesh)
-        txtr += struct.pack("<I", len(self.texture_offsets))
-        log.debug("Total number of textures: %d", len(self.texture_offsets))
-        for texture in sorted(self.texture_offsets):
+        txtr += to_dsgx_string(mesh.name)
+        txtr += struct.pack("<I", len(texture_offsets))
+        log.debug("Total number of textures: %d", len(texture_offsets))
+        for texture in sorted(texture_offsets):
             txtr += to_dsgx_string(texture) #name of this texture
 
-            txtr += struct.pack("<I", len(self.texture_offsets[texture])) #number of references to this texture in the dsgx file
+            txtr += struct.pack("<I", len(texture_offsets[texture])) #number of references to this texture in the dsgx file
 
             #debug!
             log.debug("Writing texture data for: %s", texture)
-            log.debug("Number of references: %d", len(self.texture_offsets[texture]))
+            log.debug("Number of references: %d", len(texture_offsets[texture]))
 
-            for offset in self.texture_offsets[texture]:
+            for offset in texture_offsets[texture]:
                 txtr += struct.pack("<I", offset)
         fp.write(wrap_chunk("TXTR", txtr))
 
@@ -449,10 +445,12 @@ class Writer:
         fp = open(filename, "wb")
         #first things first, output the main data
         for mesh_name in model.meshes:
-            model.active_mesh = mesh_name
-            self.output_active_mesh(fp, model, vtx10)
-            self.output_active_bones(fp, model)
-            self.output_active_textures(fp, model)
+            mesh = model.meshes[mesh_name]
+            group_offsets = {}
+            texture_offsets = defaultdict(list)
+            self.output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10)
+            self.output_bones(fp, model, mesh, group_offsets)
+            self.output_textures(fp, model, mesh, texture_offsets)
 
         self.output_animations(fp, model)
 

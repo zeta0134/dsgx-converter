@@ -10,7 +10,7 @@ class Model:
         self.animations = {}
         self.groups = ["default"]
         self.global_matrix = euclid.Matrix4()
-        self.active_mesh = "default"
+        # self.active_mesh = "default"
         self.meshes = {}
 
     class Mesh:
@@ -18,6 +18,7 @@ class Model:
             self.vertices = []
             self.polygons = []
             self.model = model
+            self.name = ""
 
         def addVertex(self, location=euclid.Vector3(0.0, 0.0, 0.0), group="default"):
             self.vertices.append(Model.Vertex(location, group))
@@ -47,6 +48,71 @@ class Model:
 
             self.polygons.append(Model.Polygon(vertex_list, uvlist, material,
                                  face_normal, vertex_normals, self, smooth))
+
+        def bounding_box(self):
+            # returns a bounding box, as a dict of 6 values.
+            # x,y,z indicate the negative side of the box, and
+            # wx, wy, and wz are the width of the box.
+
+            x,y,z = 0,0,0
+            wx, wy, wz = 0,0,0
+            for point in self.vertices:
+                x = min((x, point.location.x))
+                y = min((y, point.location.y))
+                z = min((z, point.location.z))
+                wx = max((wx, point.location.x))
+                wy = max((wy, point.location.y))
+                wz = max((wz, point.location.z))
+
+            # distance
+            wx = wx - x
+            wy = wy - y
+            wz = wz - z
+
+            return {
+                'x': x,
+                'y': y,
+                'z': z,
+                'wx': wx,
+                'wy': wy,
+                'wz': wz,
+            }
+
+        def bounding_sphere(self):
+            # returns the center of the object, and the magnitude of the furthest
+            # point from that center.
+
+            all_points = []
+            all_points.extend(self.vertices)
+
+            midpoint = sum([point.location
+                            for point in all_points],
+                           euclid.Vector3()) / len(all_points)
+
+            radius = max( abs( abs(point.location - midpoint) )  for point in all_points)
+            return midpoint, radius
+
+        def max_cull_polys(self):
+            # for this model, compute the maximum number of polygons
+            # that will ever be drawn at a given orientation.
+
+            max = 0
+            for testface in self.polygons:
+                countPositive = 0
+                countNegative = 0
+                for face in self.polygons:
+                    angle = face.face_normal.dot(testface.face_normal)
+                    #print(angle)
+                    if angle >= 0:
+                        countPositive += 1
+                    if angle < 0:
+                        countNegative += 1
+                if countPositive > max:
+                    max = countPositive
+                if countNegative > max:
+                    max = countNegative
+
+            return max
 
         def face_normal(self, vertex_list):
             # todo: implement different method for handling concave edges
@@ -171,81 +237,16 @@ class Model:
         newmtl.texture_size = (texwidth, texheight)
         self.materials[name] = newmtl
 
-    def ActiveMesh(self):
-        return self.meshes[self.active_mesh]
+    #def ActiveMesh(self):
+    #    return self.meshes[self.active_mesh]
 
-    def addVertex(self, location=euclid.Vector3(0.0, 0.0, 0.0), group="default"):
-        ActiveMesh().addVertex(location, group)
+    #def addVertex(self, location=euclid.Vector3(0.0, 0.0, 0.0), group="default"):
+    #    ActiveMesh().addVertex(location, group)
 
-    def addPolygon(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None, smooth=True):
-        ActiveMesh().addPolygon(vertex_list, uvlist, vertex_normals, material, smooth)
+    #def addPolygon(self, vertex_list=None, uvlist=None, vertex_normals=None, material=None, smooth=True):
+    #    ActiveMesh().addPolygon(vertex_list, uvlist, vertex_normals, material, smooth)
 
     def addMesh(self, mesh_name):
         self.meshes[mesh_name] = self.Mesh(self)
-        self.active_mesh = mesh_name
-
-    def max_cull_polys(self):
-        # for this model, compute the maximum number of polygons
-        # that will ever be drawn at a given orientation.
-
-        max = 0
-        for testface in self.ActiveMesh().polygons:
-            countPositive = 0
-            countNegative = 0
-            for face in self.ActiveMesh().polygons:
-                angle = face.face_normal.dot(testface.face_normal)
-                #print(angle)
-                if angle >= 0:
-                    countPositive += 1
-                if angle < 0:
-                    countNegative += 1
-            if countPositive > max:
-                max = countPositive
-            if countNegative > max:
-                max = countNegative
-
-        return max
-
-    def bounding_box(self):
-        # returns a bounding box, as a dict of 6 values.
-        # x,y,z indicate the negative side of the box, and
-        # wx, wy, and wz are the width of the box.
-
-        x,y,z = 0,0,0
-        wx, wy, wz = 0,0,0
-        for point in self.ActiveMesh().vertices:
-            x = min((x, point.location.x))
-            y = min((y, point.location.y))
-            z = min((z, point.location.z))
-            wx = max((wx, point.location.x))
-            wy = max((wy, point.location.y))
-            wz = max((wz, point.location.z))
-
-        # distance
-        wx = wx - x
-        wy = wy - y
-        wz = wz - z
-
-        return {
-            'x': x,
-            'y': y,
-            'z': z,
-            'wx': wx,
-            'wy': wy,
-            'wz': wz,
-        }
-
-    def bounding_sphere(self):
-        # returns the center of the object, and the magnitude of the furthest
-        # point from that center.
-
-        all_points = []
-        for name, mesh in self.meshes.items():
-            all_points.extend(mesh.vertices)
-
-        midpoint = sum([point.location
-                        for point in all_points],
-                       euclid.Vector3()) / len(all_points)
-
-        radius = max( abs( abs(point.location - midpoint) )  for point in all_points)
-        return midpoint, radius
+        self.meshes[mesh_name].name = mesh_name
+        return self.meshes[mesh_name]
