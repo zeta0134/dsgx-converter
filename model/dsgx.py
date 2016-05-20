@@ -324,123 +324,123 @@ def process_polygroup_faces(gx, model, mesh, scale_factor, group_offsets, textur
                     write_vertex(gx, vertex_location, scale_factor, vtx10)
                     gx.pop()
 
+def output_bounding_sphere(fp, mesh):
+    bsph = bytes()
+    bsph += to_dsgx_string(mesh.name)
+    sphere = mesh.bounding_sphere()
+    bsph += struct.pack("<iiii", to_fixed_point(sphere[0].x), to_fixed_point(sphere[0].z), to_fixed_point(sphere[0].y * -1), to_fixed_point(sphere[1]))
+    log.debug("Bounding Sphere:")
+    log.debug("X: %f", sphere[0].x)
+    log.debug("Y: %f", sphere[0].y)
+    log.debug("Z: %f", sphere[0].z)
+    log.debug("Radius: %f", sphere[1])
+    fp.write(wrap_chunk("BSPH", bsph))
+
+def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
+    gx = gc.Emitter()
+
+    write_sane_defaults(gx)
+
+    scale_factor = determine_scale_factor(mesh)
+
+    gx.push()
+    gx.mtx_mult_4x4(model.global_matrix)
+
+    if scale_factor != 1.0:
+        inverse_scale = 1 / scale_factor
+        gx.mtx_scale(inverse_scale, inverse_scale, inverse_scale)
+
+    log.debug("Global Matrix: ")
+    log.debug(model.global_matrix)
+
+    process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+    process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+
+    gx.pop() # mtx scale
+
+    fp.write(wrap_chunk("DSGX", to_dsgx_string(mesh.name) + gx.write()))
+    output_bounding_sphere(fp, mesh)
+
+    #output the cull-cost for the object
+    log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
+    fp.write(wrap_chunk("COST", to_dsgx_string(mesh.name) +
+        struct.pack("<II", mesh.max_cull_polys(), gx.cycles)))
+
+def output_bones(fp, model, mesh, group_offsets):
+    if not model.animations:
+        return
+    #matrix offsets for each bone
+    bone = bytes()
+    bone += to_dsgx_string(mesh.name)
+    some_animation = model.animations[next(iter(model.animations.keys()))]
+    bone += struct.pack("<I", len(some_animation.nodes.keys())) #number of bones in the file
+    for node_name in sorted(some_animation.nodes.keys()):
+        if node_name != "default":
+            bone += to_dsgx_string(node_name) #name of this bone
+            if node_name in group_offsets:
+                bone += struct.pack("<I", len(group_offsets[node_name])) #number of copies of this matrix in the dsgx file
+
+                #debug
+                log.debug("Writing bone data for: %s", node_name)
+                log.debug("Number of offsets: %d", len(group_offsets[node_name]))
+
+                for offset in group_offsets[node_name]:
+                    log.debug("Offset: %d", offset)
+                    bone += struct.pack("<I", offset)
+            else:
+                # We need to output a length of 0, so this bone is simply
+                # passed over
+                log.debug("Skipping bone data for: %s", node_name)
+                log.debug("Number of offsets: 0")
+                bone += struct.pack("<I", 0)
+    fp.write(wrap_chunk("BONE", bone))
+
+def output_textures(fp, model, mesh, texture_offsets):
+    #texparam offsets for each texture
+    txtr = bytes()
+    txtr += to_dsgx_string(mesh.name)
+    txtr += struct.pack("<I", len(texture_offsets))
+    log.debug("Total number of textures: %d", len(texture_offsets))
+    for texture in sorted(texture_offsets):
+        txtr += to_dsgx_string(texture) #name of this texture
+
+        txtr += struct.pack("<I", len(texture_offsets[texture])) #number of references to this texture in the dsgx file
+
+        #debug!
+        log.debug("Writing texture data for: %s", texture)
+        log.debug("Number of references: %d", len(texture_offsets[texture]))
+
+        for offset in texture_offsets[texture]:
+            txtr += struct.pack("<I", offset)
+    fp.write(wrap_chunk("TXTR", txtr))
+
+def output_animations(fp, model):
+    #animation data!
+    for animation in model.animations:
+        bani = bytes()
+        bani += to_dsgx_string(animation)
+        bani += struct.pack("<I", model.animations[animation].length)
+        log.debug("Writing animation data: %s", animation)
+        log.debug("Length in frames: %d", model.animations[animation].length)
+        #here, we output bone data per frame of the animation, making
+        #sure to use the same bone order as the BONE chunk
+        count = 0
+        for frame in range(model.animations[animation].length):
+            for node_name in sorted(model.animations[animation].nodes.keys()):
+                if node_name != "default":
+                    if frame == 1:
+                        log.debug("Writing node: %s", node_name)
+                    matrix = model.animations[animation].getTransform(node_name, frame)
+                    #hoo boy
+                    bani += struct.pack("<iiii", to_fixed_point(matrix.a), to_fixed_point(matrix.b), to_fixed_point(matrix.c), to_fixed_point(matrix.d))
+                    bani += struct.pack("<iiii", to_fixed_point(matrix.e), to_fixed_point(matrix.f), to_fixed_point(matrix.g), to_fixed_point(matrix.h))
+                    bani += struct.pack("<iiii", to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l))
+                    bani += struct.pack("<iiii", to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p))
+                    count = count + 1
+        fp.write(wrap_chunk("BANI", bani))
+        log.debug("Wrote %d matricies", count)
+
 class Writer:
-    def output_bounding_sphere(self, fp, mesh):
-        bsph = bytes()
-        bsph += to_dsgx_string(mesh.name)
-        sphere = mesh.bounding_sphere()
-        bsph += struct.pack("<iiii", to_fixed_point(sphere[0].x), to_fixed_point(sphere[0].z), to_fixed_point(sphere[0].y * -1), to_fixed_point(sphere[1]))
-        log.debug("Bounding Sphere:")
-        log.debug("X: %f", sphere[0].x)
-        log.debug("Y: %f", sphere[0].y)
-        log.debug("Z: %f", sphere[0].z)
-        log.debug("Radius: %f", sphere[1])
-        fp.write(wrap_chunk("BSPH", bsph))
-
-    def output_mesh(self, fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
-        gx = gc.Emitter()
-
-        write_sane_defaults(gx)
-
-        scale_factor = determine_scale_factor(mesh)
-
-        gx.push()
-        gx.mtx_mult_4x4(model.global_matrix)
-
-        if scale_factor != 1.0:
-            inverse_scale = 1 / scale_factor
-            gx.mtx_scale(inverse_scale, inverse_scale, inverse_scale)
-
-        log.debug("Global Matrix: ")
-        log.debug(model.global_matrix)
-
-        process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
-        process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
-
-        gx.pop() # mtx scale
-
-        fp.write(wrap_chunk("DSGX", to_dsgx_string(mesh.name) + gx.write()))
-        self.output_bounding_sphere(fp, mesh)
-
-        #output the cull-cost for the object
-        log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
-        fp.write(wrap_chunk("COST", to_dsgx_string(mesh.name) +
-            struct.pack("<II", mesh.max_cull_polys(), gx.cycles)))
-
-    def output_bones(self, fp, model, mesh, group_offsets):
-        if not model.animations:
-            return
-        #matrix offsets for each bone
-        bone = bytes()
-        bone += to_dsgx_string(mesh.name)
-        some_animation = model.animations[next(iter(model.animations.keys()))]
-        bone += struct.pack("<I", len(some_animation.nodes.keys())) #number of bones in the file
-        for node_name in sorted(some_animation.nodes.keys()):
-            if node_name != "default":
-                bone += to_dsgx_string(node_name) #name of this bone
-                if node_name in group_offsets:
-                    bone += struct.pack("<I", len(group_offsets[node_name])) #number of copies of this matrix in the dsgx file
-
-                    #debug
-                    log.debug("Writing bone data for: %s", node_name)
-                    log.debug("Number of offsets: %d", len(group_offsets[node_name]))
-
-                    for offset in group_offsets[node_name]:
-                        log.debug("Offset: %d", offset)
-                        bone += struct.pack("<I", offset)
-                else:
-                    # We need to output a length of 0, so this bone is simply
-                    # passed over
-                    log.debug("Skipping bone data for: %s", node_name)
-                    log.debug("Number of offsets: 0")
-                    bone += struct.pack("<I", 0)
-        fp.write(wrap_chunk("BONE", bone))
-
-    def output_textures(self, fp, model, mesh, texture_offsets):
-        #texparam offsets for each texture
-        txtr = bytes()
-        txtr += to_dsgx_string(mesh.name)
-        txtr += struct.pack("<I", len(texture_offsets))
-        log.debug("Total number of textures: %d", len(texture_offsets))
-        for texture in sorted(texture_offsets):
-            txtr += to_dsgx_string(texture) #name of this texture
-
-            txtr += struct.pack("<I", len(texture_offsets[texture])) #number of references to this texture in the dsgx file
-
-            #debug!
-            log.debug("Writing texture data for: %s", texture)
-            log.debug("Number of references: %d", len(texture_offsets[texture]))
-
-            for offset in texture_offsets[texture]:
-                txtr += struct.pack("<I", offset)
-        fp.write(wrap_chunk("TXTR", txtr))
-
-    def output_animations(self, fp, model):
-        #animation data!
-        for animation in model.animations:
-            bani = bytes()
-            bani += to_dsgx_string(animation)
-            bani += struct.pack("<I", model.animations[animation].length)
-            log.debug("Writing animation data: %s", animation)
-            log.debug("Length in frames: %d", model.animations[animation].length)
-            #here, we output bone data per frame of the animation, making
-            #sure to use the same bone order as the BONE chunk
-            count = 0
-            for frame in range(model.animations[animation].length):
-                for node_name in sorted(model.animations[animation].nodes.keys()):
-                    if node_name != "default":
-                        if frame == 1:
-                            log.debug("Writing node: %s", node_name)
-                        matrix = model.animations[animation].getTransform(node_name, frame)
-                        #hoo boy
-                        bani += struct.pack("<iiii", to_fixed_point(matrix.a), to_fixed_point(matrix.b), to_fixed_point(matrix.c), to_fixed_point(matrix.d))
-                        bani += struct.pack("<iiii", to_fixed_point(matrix.e), to_fixed_point(matrix.f), to_fixed_point(matrix.g), to_fixed_point(matrix.h))
-                        bani += struct.pack("<iiii", to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l))
-                        bani += struct.pack("<iiii", to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p))
-                        count = count + 1
-            fp.write(wrap_chunk("BANI", bani))
-            log.debug("Wrote %d matricies", count)
-
     def write(self, filename, model, vtx10=False):
         fp = open(filename, "wb")
         #first things first, output the main data
@@ -448,10 +448,10 @@ class Writer:
             mesh = model.meshes[mesh_name]
             group_offsets = {}
             texture_offsets = defaultdict(list)
-            self.output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10)
-            self.output_bones(fp, model, mesh, group_offsets)
-            self.output_textures(fp, model, mesh, texture_offsets)
+            output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10)
+            output_bones(fp, model, mesh, group_offsets)
+            output_textures(fp, model, mesh, texture_offsets)
 
-        self.output_animations(fp, model)
+        output_animations(fp, model)
 
         fp.close()
