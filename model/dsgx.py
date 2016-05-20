@@ -287,18 +287,72 @@ def write_face_attributes(gx, face, model, texture_offsets_list):
     ))
     return gx_commands
 
+def generate_normal(gx, normal_vector):
+    return normal(*normal_vector)
+
+def normal(x, y, z):
+    return command(0x21, [
+        struct.pack("<I",
+        (int((x*0.95) * 2**9) & 0x3FF) +
+        ((int((y*0.95) * 2**9) & 0x3FF) << 10) +
+        ((int((z*0.95) * 2**9) & 0x3FF) << 20))
+    ])
+    # self.cycles += 9 # This is assuming just ONE light is turned on
+
+@reconcile(generate_normal)
 def write_normal(gx, normal):
     if normal == None:
         log.warn("Problem: no normal for this point!", face.vertices)
     else:
-        gx.normal(*normal)
+        return gx.normal(*normal)
 
+def generate_vertex(gx, location, scale_factor, vtx10=False):
+    vtx = vtx_10 if vtx10 else vtx_16
+    return vtx(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
+
+def vtx_10(x, y, z):
+    # same as vtx_16, but using 10bit coordinates with 6bit fractional bits;
+    # this ends up being somewhat less accurate, but consumes one fewer
+    # parameter in the list, and costs one fewer GPU cycle to draw.
+
+    return command(0x24, [
+        struct.pack("<I",
+        (int(x * 2**6) & 0x3FF) |
+        ((int(y * 2**6) & 0x3FF) << 10) |
+        ((int(z * 2**6) & 0x3FF) << 20))
+    ])
+    # self.cycles += 8
+
+def vtx_16(x, y, z):
+    # given vertex coordinates as floats, convert them into
+    # 16bit fixed point numerals with 12bit fractional parts,
+    # and pack them into two commands.
+
+    # note: this command is ignoring overflow completely, do note that
+    # values outside of the range (approx. -8 to 8) will produce strange
+    # results.
+
+    return command(0x23, [
+        struct.pack("<I",
+        (int(x * 2**12) & 0xFFFF) |
+        ((int(y * 2**12) & 0xFFFF) << 16)),
+        struct.pack("<I",(int(z * 2**12) & 0xFFFF))
+    ])
+    # self.cycles += 9
+
+@reconcile(generate_vertex)
 def write_vertex(gx, location, scale_factor, vtx10=False):
     if vtx10:
-        gx.vtx_10(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
+        return gx.vtx_10(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
     else:
-        gx.vtx_16(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
+        return gx.vtx_16(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
 
+def determine_scale_factor_new(model):
+    box = model.bounding_box()
+    largest_coordinate = max(abs(box["wx"]), abs(box["wy"]), abs(box["wz"]))
+    return 1.0 if largest_coordinate <= 7.9 else 7.9 / largest_coordinate
+
+@reconcile(determine_scale_factor_new)
 def determine_scale_factor(model):
     scale_factor = 1.0
     bb = model.bounding_box()
@@ -308,25 +362,63 @@ def determine_scale_factor(model):
         scale_factor = 7.9 / largest_coordinate
     return scale_factor
 
-def write_sane_defaults(gx):
+def generate_defaults(gx):
     # todo: figure out light offsets, if we ever want to have
     # dynamic scene lights and stuff with vertex colors
-    gx.color(64, 64, 64, True) #use256 mode
-    gx.polygon_attr(light0=1, light1=1, light2=1, light3=1)
+    # default material, if no other material gets specified
+    default_diffuse_color = 192, 192, 192
+    default_ambient_color = 32, 32, 32
+    return [color(64, 64, 64, use256=True),
+        polygon_attr(light0=1, light1=1, light2=1, light3=1),
+        dif_amb(default_diffuse_color, default_ambient_color, use256=True)]
+
+def color(red, green, blue, use256=False):
+    if use256:
+        # DS colors are in 16bit mode (5 bits per value)
+        red = int(red/8)
+        blue = int(blue/8)
+        green = int(green/8)
+    return command(0x20, [
+        struct.pack("<I",
+        (red & 0x1F) +
+        ((green & 0x1F) << 5) +
+        ((blue & 0x1F) << 10))
+    ])
+    # self.cycles += 1
+
+@reconcile(generate_defaults)
+def write_sane_defaults(gx):
+    gx_commands = []  # TODO
+    # todo: figure out light offsets, if we ever want to have
+    # dynamic scene lights and stuff with vertex colors
+    gx_commands.append(gx.color(64, 64, 64, True)) #use256 mode
+    gx_commands.append(gx.polygon_attr(light0=1, light1=1, light2=1, light3=1))
 
     # default material, if no other material gets specified
     default_diffuse_color = (192,192,192)
     default_ambient_color = (32,32,32)
     set_vertex_color = False
     use_256_colors = True
-    gx.dif_amb(default_diffuse_color, default_ambient_color, set_vertex_color,
-               use_256_colors)
+    gx_commands.append(gx.dif_amb(default_diffuse_color, default_ambient_color,
+        set_vertex_color, use_256_colors))
+    return gx_commands
 
+VTXS_TRIANGLE = 0
+VTXS_QUAD = 1
+def generate_polygon_list_start(gx, points_per_polygon):
+    assert points_per_polygon in (3, 4), "Invalid number of points in polygon: %d" % points_per_polygon
+    return begin_vtxs(VTXS_TRIANGLE if points_per_polygon == 3 else VTXS_QUAD)
+
+def begin_vtxs(format):
+    return command(0x40, [struct.pack("<I", format & 0x3)])
+    # self.cycles += 1
+
+@reconcile(generate_polygon_list_start)
 def start_polygon_list(gx, points_per_polygon):
     if (points_per_polygon == 3):
-        gx.begin_vtxs(gx.vtxs_triangle)
+        return gx.begin_vtxs(gx.vtxs_triangle)
     if (points_per_polygon == 4):
-        gx.begin_vtxs(gx.vtxs_quad)
+        return gx.begin_vtxs(gx.vtxs_quad)
 
 class Writer:
     def process_monogroup_faces(self, gx, model, vtx10=False):

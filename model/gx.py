@@ -79,8 +79,9 @@ class Emitter:
     vtxs_triangle_strip = 2
     vtxs_quadstrip = 3
     def begin_vtxs(self, format):
-        self.command(0x40, [struct.pack("<I",format & 0x3)])
+        cmd = self.command(0x40, [struct.pack("<I",format & 0x3)])
         self.cycles += 1
+        return cmd
 
     def end_vtxs(self):
         pass #dummy command, real hardware does nothing, no point in outputting
@@ -94,26 +95,28 @@ class Emitter:
         # values outside of the range (approx. -8 to 8) will produce strange
         # results.
 
-        self.command(0x23, [
+        cmd = self.command(0x23, [
             struct.pack("<I",
             (int(x * 2**12) & 0xFFFF) |
             ((int(y * 2**12) & 0xFFFF) << 16)),
             struct.pack("<I",(int(z * 2**12) & 0xFFFF))
         ])
         self.cycles += 9
+        return cmd
 
     def vtx_10(self, x, y, z):
         # same as vtx_10, but using 10bit coordinates with 6bit fractional bits;
         # this ends up being somewhat less accurate, but consumes one fewer
         # parameter in the list, and costs one fewer GPU cycle to draw.
 
-        self.command(0x24, [
+        cmd = self.command(0x24, [
             struct.pack("<I",
             (int(x * 2**6) & 0x3FF) |
             ((int(y * 2**6) & 0x3FF) << 10) |
             ((int(z * 2**6) & 0x3FF) << 20))
         ])
         self.cycles += 8
+        return cmd
 
 
     polygon_mode_modulation = 0
@@ -162,22 +165,24 @@ class Emitter:
             red = int(red/8)
             blue = int(blue/8)
             green = int(green/8)
-        self.command(0x20, [
+        cmd = self.command(0x20, [
             struct.pack("<I",
             (red & 0x1F) +
             ((green & 0x1F) << 5) +
             ((blue & 0x1F) << 10))
         ])
         self.cycles += 1
+        return cmd
 
     def normal(self, x, y, z):
-        self.command(0x21, [
+        cmd = self.command(0x21, [
             struct.pack("<I",
             (int((x*0.95) * 2**9) & 0x3FF) +
             ((int((y*0.95) * 2**9) & 0x3FF) << 10) +
             ((int((z*0.95) * 2**9) & 0x3FF) << 20))
         ])
         self.cycles += 9 # This is assuming just ONE light is turned on
+        return cmd
 
     def dif_amb(self, diffuse, ambient, setvertex=False, use256=False):
         if (use256):
