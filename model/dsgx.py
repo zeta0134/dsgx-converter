@@ -14,6 +14,9 @@ import euclid3 as euclid
 import model.geometry_command as gc
 from model.geometry_command import to_fixed_point
 
+from itertools import groupby
+from operator import methodcaller, attrgetter
+
 log = logging.getLogger()
 WORD_SIZE_BYTES = 4
 
@@ -108,9 +111,9 @@ def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
 
 CLEAR_TEXTURE_PARAMETERS = gc.teximage_param(0, 0, 0, 0)
 
-def generate_face_attributes(gx, face, model, texture_offsets_list):
-    material = model.materials[face.material]
-    flags = parse_material_flags(face.material)
+def generate_face_attributes(gx, material_name, model, texture_offsets_list):
+    material = model.materials[material_name]
+    flags = parse_material_flags(material_name)
     scale = lambda components: gc.scale_components(components, 255)
 
     texture_attributes = (generate_texture_attributes(gx, material.texture,
@@ -125,21 +128,21 @@ def generate_face_attributes(gx, face, model, texture_offsets_list):
         material_properties]))
 
 @reconcile(generate_face_attributes)
-def write_face_attributes(gx, face, model, texture_offsets_list):
+def write_face_attributes(gx, material_name, model, texture_offsets_list):
     #write out material and texture data for this polygon
-    log.debug("Writing material: %s", face.material)
+    log.debug("Writing material: %s", material_name)
     gx_commands = []
-    material = model.materials[face.material]
+    material = model.materials[material_name]
     if material.texture != None:
-        log.debug("%s is textured! Writing texture info out now.", face.material)
-        texture_name = model.materials[face.material].texture
+        log.debug("%s is textured! Writing texture info out now.", material_name)
+        texture_name = model.materials[material_name].texture
         gx_commands.extend(write_texture_attributes(gx, texture_name, material, texture_offsets_list))
     else:
-        log.debug("%s has no texture; outputting dummy teximage to clear state.", face.material)
+        log.debug("%s has no texture; outputting dummy teximage to clear state.", material_name)
         gx_commands.append(gx.teximage_param(0, 0, 0, 0))
 
     #polygon attributes for this material
-    flags = parse_material_flags(face.material)
+    flags = parse_material_flags(material_name)
     if flags:
         log.debug("Encountered special case material!")
         polygon_alpha = 31
@@ -245,122 +248,42 @@ def start_polygon_list(gx, points_per_polygon):
     if (points_per_polygon == 4):
         return gx.begin_vtxs(gx.vtxs_quad)
 
-def write_face(gx, model, face, group_offsets, texture_offsets, vtx10=False):
-    material = model.materials(face.material)
+def write_face(gx, model, mesh, face, scale_factor, texture_offsets, vtx10=False):
+    material = model.materials[face.material]
     if not face.smooth_shading:
         gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
-    for v in face.vertices:
+    for vertex_index in range(len(face.vertices)):
         if material.texture:
             size = material.texture_size
-            ds_u = face.uvlist[v][0] * size[0]
-            ds_v = (1.0 - face.uvlist[p][1]) * size[1]
+            ds_u = face.uvlist[vertex_index][0] * size[0]
+            ds_v = (1.0 - face.uvlist[vertex_index][1]) * size[1]
             gx.texcoord(ds_u, ds_v)
         if face.smooth_shading:
-            write_normal(gx, face.vertex_normals[v])
-        vertex_location = model.vertices[v].location
+            write_normal(gx, face.vertex_normals[vertex_index])
+        vertex_location = mesh.vertices[face.vertices[vertex_index]].location
         write_vertex(gx, vertex_location, scale_factor, vtx10)
 
-def write_faces(gx, model, faces, scale_factor, group_offsets, texture_offsets, vtx10=False):
-    last_group = "default"
-    last_material = None
-    last_length = 0
+def write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
+    faces = sorted(mesh.polygons, key=lambda f:
+        (f.vertexGroup(), f.material, len(f.vertices)))
 
-    for face in faces:
-        if face.isMixed() == False and face.vertexGroup() != last_group:
+    for group, group_faces in groupby(faces, methodcaller("vertexGroup")):
+        gx.push()
+        if group == "__mixed":
+            log.warning("This model uses mixed-group polygons! Animation for this is not yet implemented.")
+        if group != "__mixed":
             # store this transformation offset for the engine to use
             if not group in group_offsets:
                 group_offsets[group] = []
             group_offsets[group].append(gx.offset + 1)
             gx.mtx_mult_4x4(euclid.Matrix4())
-        if face.material != last_material:
-            last_material = face.material
-            last_length = len(face.vertices)
-            write_face_attributes(gx, face, model, texture_offsets)
-            start_polygon_list(gx, len(face.vertices))
-        if last_length != len(face.vertices):
-            start_polygon_list(gx, len(face.vertices))
-
-        write_face(gx, model, face, scale_factor, texture_offsets, vtx10=False)
-
-
-def process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
-    #process faces that all belong to one vertex group (simple case)
-    current_material = None
-    for group in model.groups:
-        gx.push()
-
-        #store this transformation offset for later
-        if group != "default":
-            if not group in group_offsets:
-                group_offsets[group] = []
-            group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
-
-        #emit a default matrix for this group; this makes the T-pose work
-        #if no animation is selected
-        gx.mtx_mult_4x4(euclid.Matrix4())
-
-        for polytype in range(3,5):
-            start_polygon_list(gx, polytype)
-
-            for face in mesh.polygons:
-                if (face.vertexGroup() == group and not face.isMixed() and
-                        len(face.vertices) == polytype):
-                    if current_material != face.material:
-                        current_material = face.material
-                        write_face_attributes(gx, face, model, texture_offsets)
-                        # on material edges, we need to start a new list
-                        start_polygon_list(gx, polytype)
-                    if not face.smooth_shading:
-                        gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
-                    for p in range(len(face.vertices)):
-                        # uv coordinate
-                        if model.materials[current_material].texture:
-                            # two things here:
-                            # 1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
-                            #    we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
-                            # 2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
-                            #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
-                            size = model.materials[face.material].texture_size
-                            gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
-                        if face.smooth_shading:
-                            write_normal(gx, face.vertex_normals[p])
-                        vertex_location = mesh.vertices[face.vertices[p]].location
-                        write_vertex(gx, vertex_location, scale_factor, vtx10)
+        for material_name, material_faces in groupby(group_faces, attrgetter("material")):
+            write_face_attributes(gx, material_name, model, texture_offsets)
+            for length, polytype_faces in groupby(material_faces, lambda f: len(f.vertices)):
+                start_polygon_list(gx, length)
+                for face in polytype_faces:
+                    write_face(gx, model, mesh, face, scale_factor, texture_offsets, vtx10=False)
         gx.pop()
-
-def process_polygroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
-    # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
-    current_material = None
-    for polytype in range(3,5):
-        start_polygon_list(gx, polytype)
-        for face in mesh.polygons:
-            if len(face.vertices) == polytype and face.isMixed():
-                if current_material != face.material:
-                    current_material = face.material
-                    write_face_attributes(gx, face, model, texture_offsets)
-                    # on material edges, we need to start a new list
-                    start_polygon_list(gx, polytype)
-                if not face.smooth_shading:
-                    gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
-                for p in range(len(face.vertices)):
-                    point_index = face.vertices[p]
-                    gx.push()
-
-                    # store this transformation offset for later
-                    group = mesh.vertices[point_index].group
-                    if not group in group_offsets:
-                        group_offsets[group] = []
-                    # skip over the command itself; we need a reference to
-                    # the parameters
-                    group_offsets[group].append(gx.offset + 1)
-
-                    gx.mtx_mult_4x4(euclid.Matrix4())
-
-                    if face.smooth_shading:
-                        write_normal(gx, face.vertex_normals[p])
-                    vertex_location = mesh.vertices[point_index].location
-                    write_vertex(gx, vertex_location, scale_factor, vtx10)
-                    gx.pop()
 
 def sort_polygons(polygon_list):
     return sorted(polygon_list, lambda p:
@@ -395,8 +318,7 @@ def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
     log.debug("Global Matrix: ")
     log.debug(model.global_matrix)
 
-    process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
-    process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+    write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
 
     gx.pop() # mtx scale
 
