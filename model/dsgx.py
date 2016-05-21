@@ -60,7 +60,7 @@ def wrap_chunk(name, data):
 
 def padding_to(byte_count, alignment=WORD_SIZE_BYTES):
     """Calculate the number of bytes to pad byte_count bytes to alignment."""
-    return alignment - (byte_count % alignment) if byte_count % alignment else 0
+    return alignment - byte_count % alignment if byte_count % alignment else 0
 
 def to_dsgx_string(string):
     """Convert string to a 32 byte null terminated C string byte string."""
@@ -419,6 +419,23 @@ def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
     fp.write(cost_chunk)
     return [dsgx_chunk, bsph_chunk, cost_chunk]
 
+def generate_bones(_,  model, mesh, group_offsets):
+    if not model.animations:
+        return
+    name = to_dsgx_string(mesh.name)
+    animation = model.animations[next(iter(model.animations.keys()))]
+    bone_count = len(animation.nodes.keys())
+    bones = []
+    for node_name in sorted(animation.nodes.keys()):
+        if node_name == "default":
+            continue
+        bone_name = to_dsgx_string(node_name)
+        bone_offsets = group_offsets.get(node_name, [])
+        bones.append(struct.pack("< 32s I %dI" % len(bone_offsets), bone_name, len(bone_offsets), *bone_offsets))
+    bones = b"".join(bones)
+    return wrap_chunk("BONE", struct.pack("< 32s I %ds" % len(bones), name, bone_count, bones))
+
+@reconcile(generate_bones)
 def output_bones(fp, model, mesh, group_offsets):
     if not model.animations:
         return
@@ -446,8 +463,20 @@ def output_bones(fp, model, mesh, group_offsets):
                 log.debug("Skipping bone data for: %s", node_name)
                 log.debug("Number of offsets: 0")
                 bone += struct.pack("<I", 0)
-    fp.write(wrap_chunk("BONE", bone))
+    chunk = wrap_chunk("BONE", bone)
+    fp.write(chunk)
+    return chunk
 
+def generate_textures(_, _2, mesh, texture_offsets):
+    name = to_dsgx_string(mesh.name)
+    count = len(texture_offsets)
+    references = b"".join(struct.pack("< 32s I %dI" %
+        len(texture_offsets[texture]), to_dsgx_string(texture),
+        len(texture_offsets[texture]), *texture_offsets[texture])
+        for texture in sorted(texture_offsets))
+    return wrap_chunk("TXTR", struct.pack("< 32s I %ds" % len(references), name, count, references))
+
+@reconcile(generate_textures)
 def output_textures(fp, model, mesh, texture_offsets):
     #texparam offsets for each texture
     txtr = bytes()
@@ -465,9 +494,29 @@ def output_textures(fp, model, mesh, texture_offsets):
 
         for offset in texture_offsets[texture]:
             txtr += struct.pack("<I", offset)
-    fp.write(wrap_chunk("TXTR", txtr))
+    chunk = wrap_chunk("TXTR", txtr)
+    fp.write(chunk)
+    return chunk
 
+def generate_animations(_, model):
+    return [generate_animation(model, animation) for animation in model.animations]
+
+def generate_animation(model, animation):
+    name = to_dsgx_string(animation)
+    length = model.animations[animation].length
+    matrices = []
+    for frame in range(model.animations[animation].length):
+        for node_name in sorted(model.animations[animation].nodes.keys()):
+            if node_name == "default":
+                continue
+            matrix = model.animations[animation].getTransform(node_name, frame)
+            matrices.append(struct.pack("< 16i", to_fixed_point(matrix.a), to_fixed_point(matrix.b), to_fixed_point(matrix.c), to_fixed_point(matrix.d), to_fixed_point(matrix.e), to_fixed_point(matrix.f), to_fixed_point(matrix.g), to_fixed_point(matrix.h), to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l), to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p)))
+    matrices = b"".join(matrices)
+    return wrap_chunk("BANI", struct.pack("< 32s I %ds" % len(matrices), name, length, matrices))
+
+@reconcile(generate_animations)
 def output_animations(fp, model):
+    chunks = []
     #animation data!
     for animation in model.animations:
         bani = bytes()
@@ -490,10 +539,11 @@ def output_animations(fp, model):
                     bani += struct.pack("<iiii", to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l))
                     bani += struct.pack("<iiii", to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p))
                     count = count + 1
-        fp.write(wrap_chunk("BANI", bani))
+        chunk = wrap_chunk("BANI", bani)
+        fp.write(chunk)
+        chunks.append(chunk)
         log.debug("Wrote %d matricies", count)
-
-
+    return chunks
 
 class Writer:
     def write(self, filename, model, vtx10=False):
