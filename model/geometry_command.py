@@ -70,6 +70,23 @@ def dif_amb(diffuse, ambient, setvertex=False, use256=False):
     # self.cycles += 4
     return cmd
 
+def mtx_mult_4x4(matrix):
+    return command(0x18, [
+            struct.pack("<i",to_fixed_point(matrix.a)), struct.pack("<i",to_fixed_point(matrix.b)), struct.pack("<i",to_fixed_point(matrix.c)), struct.pack("<i",to_fixed_point(matrix.d)),
+            struct.pack("<i",to_fixed_point(matrix.e)), struct.pack("<i",to_fixed_point(matrix.f)), struct.pack("<i",to_fixed_point(matrix.g)), struct.pack("<i",to_fixed_point(matrix.h)),
+            struct.pack("<i",to_fixed_point(matrix.i)), struct.pack("<i",to_fixed_point(matrix.j)), struct.pack("<i",to_fixed_point(matrix.k)), struct.pack("<i",to_fixed_point(matrix.l)),
+            struct.pack("<i",to_fixed_point(matrix.m)), struct.pack("<i",to_fixed_point(matrix.n)), struct.pack("<i",to_fixed_point(matrix.o)), struct.pack("<i",to_fixed_point(matrix.p))
+        ])
+    # self.cycles += 35
+
+def mtx_scale(sx, sy, sz):
+    return command(0x1B, [
+            struct.pack("<i", to_fixed_point(sx)),
+            struct.pack("<i", to_fixed_point(sy)),
+            struct.pack("<i", to_fixed_point(sz))
+        ])
+    # self.cycles += 22
+
 def normal(x, y, z):
     return command(0x21, [
         struct.pack("<I",
@@ -110,6 +127,14 @@ def polygon_attr(light0=0, light1=0, light2=0, light3=0,
     return command(0x29, [struct.pack("<I", attr)])
     # self.cycles += 1
 
+def pop():
+    return command(0x12, [struct.pack("<I",0x1)])
+    # self.cycles += 36
+
+def push():
+    return command(0x11)
+    # self.cycles += 17
+
 def spe_emi(specular, emit, use_specular_table=False, use256=False):
     if use256:
         # DS colors are in 16bit mode (5 bits per value)
@@ -125,6 +150,13 @@ def spe_emi(specular, emit, use_specular_table=False, use256=False):
         ((26, 30), emit[2])))])
     # self.cycles += 4
     return cmd
+
+def texcoord(u, v):
+    return command(0x22, [
+        struct.pack("<I",
+        (int(u * 2**4) & 0xFFFF) |
+        ((int(v * 2**4) & 0xFFFF) << 16))])
+    # self.cycles += 1
 
 def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
     transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0):
@@ -417,37 +449,42 @@ class Emitter:
         return cmd
 
     def push(self):
-        self.command(0x11)
+        cmd = self.command(0x11)
         self.cycles += 17
+        return cmd
 
     def pop(self):
-        self.command(0x12, [struct.pack("<I",0x1)])
+        cmd = self.command(0x12, [struct.pack("<I",0x1)])
         self.cycles += 36
+        return cmd
 
     #note: expects a euclid.py matrix, any other format will not work
     def mtx_mult_4x4(self, matrix):
-        self.command(0x18, [
+        cmd = self.command(0x18, [
                 struct.pack("<i",to_fixed_point(matrix.a)), struct.pack("<i",to_fixed_point(matrix.b)), struct.pack("<i",to_fixed_point(matrix.c)), struct.pack("<i",to_fixed_point(matrix.d)),
                 struct.pack("<i",to_fixed_point(matrix.e)), struct.pack("<i",to_fixed_point(matrix.f)), struct.pack("<i",to_fixed_point(matrix.g)), struct.pack("<i",to_fixed_point(matrix.h)),
                 struct.pack("<i",to_fixed_point(matrix.i)), struct.pack("<i",to_fixed_point(matrix.j)), struct.pack("<i",to_fixed_point(matrix.k)), struct.pack("<i",to_fixed_point(matrix.l)),
                 struct.pack("<i",to_fixed_point(matrix.m)), struct.pack("<i",to_fixed_point(matrix.n)), struct.pack("<i",to_fixed_point(matrix.o)), struct.pack("<i",to_fixed_point(matrix.p))
             ])
         self.cycles += 35
+        return cmd
 
     def mtx_scale(self, sx, sy, sz):
-        self.command(0x1B, [
+        cmd = self.command(0x1B, [
                 struct.pack("<i", to_fixed_point(sx)),
                 struct.pack("<i", to_fixed_point(sy)),
                 struct.pack("<i", to_fixed_point(sz))
             ])
         self.cycles += 22
+        return cmd
 
     def texcoord(self, u, v):
-        self.command(0x22, [
+        cmd = self.command(0x22, [
             struct.pack("<I",
             (int(u * 2**4) & 0xFFFF) |
             ((int(v * 2**4) & 0xFFFF) << 16))])
         self.cycles += 1
+        return cmd
 
     def teximage_param(self, offset, width, height, format = 0, palette_transparency = 0, transform_mode = 0, u_repeat = 1, v_repeat = 1, u_flip = 0, v_flip = 0):
         #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we

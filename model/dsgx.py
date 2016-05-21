@@ -246,34 +246,33 @@ def start_polygon_list(gx, points_per_polygon):
         return gx.begin_vtxs(gx.vtxs_quad)
 
 def process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
+    gx_commands = []
     #process faces that all belong to one vertex group (simple case)
     current_material = None
     for group in model.groups:
-        gx.push()
+        gx_commands.append(gx.push())
 
         #store this transformation offset for later
         if group != "default":
-            if not group in group_offsets:
-                group_offsets[group] = []
             group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
 
         #emit a default matrix for this group; this makes the T-pose work
         #if no animation is selected
-        gx.mtx_mult_4x4(euclid.Matrix4())
+        gx_commands.append(gx.mtx_mult_4x4(euclid.Matrix4()))
 
         for polytype in range(3,5):
-            start_polygon_list(gx, polytype)
+            gx_commands.append(start_polygon_list(gx, polytype))
 
             for face in mesh.polygons:
                 if (face.vertexGroup() == group and not face.isMixed() and
                         len(face.vertices) == polytype):
                     if current_material != face.material:
                         current_material = face.material
-                        write_face_attributes(gx, face, model, texture_offsets)
+                        gx_commands.append(write_face_attributes(gx, face, model, texture_offsets))
                         # on material edges, we need to start a new list
-                        start_polygon_list(gx, polytype)
+                        gx_commands.append(start_polygon_list(gx, polytype))
                     if not face.smooth_shading:
-                        gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
+                        gx_commands.append(gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2]))
                     for p in range(len(face.vertices)):
                         # uv coordinate
                         if model.materials[current_material].texture:
@@ -283,12 +282,13 @@ def process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, textur
                             # 2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
                             #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
                             size = model.materials[face.material].texture_size
-                            gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1])
+                            gx_commands.append(gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1]))
                         if face.smooth_shading:
-                            write_normal(gx, face.vertex_normals[p])
+                            gx_commands.append(write_normal(gx, face.vertex_normals[p]))
                         vertex_location = mesh.vertices[face.vertices[p]].location
-                        write_vertex(gx, vertex_location, scale_factor, vtx10)
-        gx.pop()
+                        gx_commands.append(write_vertex(gx, vertex_location, scale_factor, vtx10))
+        gx_commands.append(gx.pop())
+    return list(flatten(gx_commands))
 
 def process_polygroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
     # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
@@ -324,6 +324,16 @@ def process_polygroup_faces(gx, model, mesh, scale_factor, group_offsets, textur
                     write_vertex(gx, vertex_location, scale_factor, vtx10)
                     gx.pop()
 
+def generate_bounding_sphere(_, mesh):
+    sphere = mesh.bounding_sphere()
+    log.debug("Bounding sphere of radius %f centered at (%f, %f, %f)",
+        sphere[1], sphere[0].x, sphere[0].y, sphere[0].z)
+    return wrap_chunk("BSPH", struct.pack("< 32s i i i i",
+        to_dsgx_string(mesh.name), to_fixed_point(sphere[0].x),
+        to_fixed_point(sphere[0].z), to_fixed_point(sphere[0].y * -1),
+        to_fixed_point(sphere[1])))
+
+@reconcile(generate_bounding_sphere)
 def output_bounding_sphere(fp, mesh):
     bsph = bytes()
     bsph += to_dsgx_string(mesh.name)
@@ -334,9 +344,65 @@ def output_bounding_sphere(fp, mesh):
     log.debug("Y: %f", sphere[0].y)
     log.debug("Z: %f", sphere[0].z)
     log.debug("Radius: %f", sphere[1])
-    fp.write(wrap_chunk("BSPH", bsph))
+    chunk = wrap_chunk("BSPH", bsph)
+    fp.write(chunk)
+    return chunk
 
+def generate_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
+    gx = gc.Emitter()
+
+    dsgx_chunk = generate_dsgx(gx, model, mesh, group_offsets, texture_offsets, vtx10)
+    # fp.write(dsgx_chunk)
+    bsph_chunk = generate_bounding_sphere(None, mesh)
+
+    #output the cull-cost for the object
+    log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
+    cost_chunk = wrap_chunk("COST", to_dsgx_string(mesh.name) +
+        struct.pack("<II", mesh.max_cull_polys(), gx.cycles))
+    # fp.write(cost_chunk)
+    return [dsgx_chunk, bsph_chunk, cost_chunk]
+
+def generate_dsgx(gx, model, mesh, group_offsets, texture_offsets, vtx10=False):
+    gx_commands = []
+    gx_commands.append(generate_defaults(None))
+    # write_sane_defaults(gx)
+
+    scale_factor = determine_scale_factor_new(mesh)
+
+    gx_commands.append(gc.push())
+    gx_commands.append(gc.mtx_mult_4x4(model.global_matrix))
+    # gx.push()
+    # gx.mtx_mult_4x4(model.global_matrix)
+
+    if scale_factor != 1.0:
+        inverse_scale = 1 / scale_factor
+        gx_commands.append(gc.mtx_scale(inverse_scale, inverse_scale, inverse_scale))
+        # gx.mtx_scale(inverse_scale, inverse_scale, inverse_scale)
+
+    log.debug("Global Matrix: ")
+    log.debug(model.global_matrix)
+
+    gx_commands.append(process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10))
+    # process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+
+    gx_commands.append(gc.pop())
+    # gx.pop() # mtx scale
+
+    # return wrap_chunk("DSGX", to_dsgx_string(mesh.name) + gx.write())
+    return wrap_chunk("DSGX", to_dsgx_string(mesh.name) + generate_gl_call_list(list(flatten(gx_commands))))
+
+def generate_gl_call_list(commands):
+    call_list = []
+    for command in commands:
+        command_bytes = struct.pack("< B B B B", command["instruction"], 0, 0, 0)
+        command_bytes += b"".join(command["params"])
+        call_list.append(command_bytes)
+    call_list = b"".join(call_list)
+    return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list)
+
+# @reconcile(generate_mesh)
 def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
+    # generate_mesh(None, model, mesh, group_offsets, texture_offsets, vtx10)
     gx = gc.Emitter()
 
     write_sane_defaults(gx)
@@ -354,17 +420,20 @@ def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
     log.debug(model.global_matrix)
 
     process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
-    process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+    # process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
 
     gx.pop() # mtx scale
 
-    fp.write(wrap_chunk("DSGX", to_dsgx_string(mesh.name) + gx.write()))
-    output_bounding_sphere(fp, mesh)
+    dsgx_chunk = wrap_chunk("DSGX", to_dsgx_string(mesh.name) + gx.write())
+    fp.write(dsgx_chunk)
+    bsph_chunk = output_bounding_sphere(fp, mesh)
 
     #output the cull-cost for the object
     log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
-    fp.write(wrap_chunk("COST", to_dsgx_string(mesh.name) +
-        struct.pack("<II", mesh.max_cull_polys(), gx.cycles)))
+    cost_chunk = wrap_chunk("COST", to_dsgx_string(mesh.name) +
+        struct.pack("<II", mesh.max_cull_polys(), gx.cycles))
+    fp.write(cost_chunk)
+    return [dsgx_chunk, bsph_chunk, cost_chunk]
 
 def output_bones(fp, model, mesh, group_offsets):
     if not model.animations:
@@ -446,7 +515,7 @@ class Writer:
         #first things first, output the main data
         for mesh_name in model.meshes:
             mesh = model.meshes[mesh_name]
-            group_offsets = {}
+            group_offsets = defaultdict(list)
             texture_offsets = defaultdict(list)
             output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10)
             output_bones(fp, model, mesh, group_offsets)
