@@ -248,6 +248,24 @@ def start_polygon_list(gx, points_per_polygon):
     if (points_per_polygon == 4):
         return gx.begin_vtxs(gx.vtxs_quad)
 
+def generate_face(_, model, mesh, face, scale_factor, texture_offsets, vtx10=False):
+    commands = []
+    material = model.materials[face.material]
+    if not face.smooth_shading:
+        commands.append(gc.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2]))
+    for vertex_index in range(len(face.vertices)):
+        if material.texture:
+            size = material.texture_size
+            ds_u = face.uvlist[vertex_index][0] * size[0]
+            ds_v = (1.0 - face.uvlist[vertex_index][1]) * size[1]
+            commands.append(gc.texcoord(ds_u, ds_v))
+        if face.smooth_shading:
+            commands.append(write_normal(gc, face.vertex_normals[vertex_index]))
+        vertex_location = mesh.vertices[face.vertices[vertex_index]].location
+        commands.append(write_vertex(gc, vertex_location, scale_factor, vtx10))
+    return list(flatten(commands))
+
+@reconcile(generate_face)
 def write_face(gx, model, mesh, face, scale_factor, texture_offsets, vtx10=False):
     commands = []
     material = model.materials[face.material]
@@ -265,6 +283,31 @@ def write_face(gx, model, mesh, face, scale_factor, texture_offsets, vtx10=False
         commands.append(write_vertex(gx, vertex_location, scale_factor, vtx10))
     return list(flatten(commands))
 
+def generate_faces(_, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
+    commands = []
+    faces = sorted(mesh.polygons, key=lambda f:
+        (f.vertexGroup(), f.material, len(f.vertices)))
+
+    for group, group_faces in groupby(faces, methodcaller("vertexGroup")):
+        commands.append(gc.push())
+        if group == "__mixed":
+            log.warning("This model uses mixed-group polygons! Animation for this is not yet implemented.")
+        if group != "__mixed":
+            # store this transformation offset for the engine to use
+            # if not group in group_offsets:
+            #     group_offsets[group] = []
+            # group_offsets[group].append(gc.offset + 1)
+            commands.append(gc.mtx_mult_4x4(euclid.Matrix4()))
+        for material_name, material_faces in groupby(group_faces, attrgetter("material")):
+            commands.append(generate_face_attributes(gc, material_name, model, texture_offsets))
+            for length, polytype_faces in groupby(material_faces, lambda f: len(f.vertices)):
+                commands.append(generate_polygon_list_start(gc, length))
+                for face in polytype_faces:
+                    commands.append(generate_face(gc, model, mesh, face, scale_factor, texture_offsets, vtx10=False))
+        commands.append(gc.pop())
+    return list(flatten(commands))
+
+@reconcile(generate_faces)
 def write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
     commands = []
     faces = sorted(mesh.polygons, key=lambda f:
@@ -371,7 +414,7 @@ def generate_command_list(gx, model, mesh, group_offsets, texture_offsets, vtx10
     log.debug("Global Matrix: ")
     log.debug(model.global_matrix)
 
-    gx_commands.append(write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10))
+    gx_commands.append(generate_faces(None, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10))
 
     gx_commands.append(gc.pop())
     return list(flatten(gx_commands))
@@ -385,9 +428,8 @@ def generate_gl_call_list(commands):
     call_list = b"".join(call_list)
     return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list), None
 
-# @reconcile(generate_mesh)
+@reconcile(generate_mesh)
 def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
-    # generate_mesh(None, model, mesh, defaultdict(list), defaultdict(list), vtx10)
     gx = gc.Emitter()
 
     write_sane_defaults(gx)
