@@ -14,6 +14,9 @@ import euclid3 as euclid
 import model.geometry_command as gc
 from model.geometry_command import to_fixed_point
 
+from itertools import groupby
+from operator import methodcaller, attrgetter
+
 log = logging.getLogger()
 WORD_SIZE_BYTES = 4
 
@@ -108,9 +111,9 @@ def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
 
 CLEAR_TEXTURE_PARAMETERS = gc.teximage_param(0, 0, 0, 0)
 
-def generate_face_attributes(gx, face, model, texture_offsets_list):
-    material = model.materials[face.material]
-    flags = parse_material_flags(face.material)
+def generate_face_attributes(gx, material_name, model, texture_offsets_list):
+    material = model.materials[material_name]
+    flags = parse_material_flags(material_name)
     scale = lambda components: gc.scale_components(components, 255)
 
     texture_attributes = (generate_texture_attributes(gx, material.texture,
@@ -125,21 +128,21 @@ def generate_face_attributes(gx, face, model, texture_offsets_list):
         material_properties]))
 
 @reconcile(generate_face_attributes)
-def write_face_attributes(gx, face, model, texture_offsets_list):
+def write_face_attributes(gx, material_name, model, texture_offsets_list):
     #write out material and texture data for this polygon
-    log.debug("Writing material: %s", face.material)
+    log.debug("Writing material: %s", material_name)
     gx_commands = []
-    material = model.materials[face.material]
+    material = model.materials[material_name]
     if material.texture != None:
-        log.debug("%s is textured! Writing texture info out now.", face.material)
-        texture_name = model.materials[face.material].texture
+        log.debug("%s is textured! Writing texture info out now.", material_name)
+        texture_name = model.materials[material_name].texture
         gx_commands.extend(write_texture_attributes(gx, texture_name, material, texture_offsets_list))
     else:
-        log.debug("%s has no texture; outputting dummy teximage to clear state.", face.material)
+        log.debug("%s has no texture; outputting dummy teximage to clear state.", material_name)
         gx_commands.append(gx.teximage_param(0, 0, 0, 0))
 
     #polygon attributes for this material
-    flags = parse_material_flags(face.material)
+    flags = parse_material_flags(material_name)
     if flags:
         log.debug("Encountered special case material!")
         polygon_alpha = 31
@@ -245,84 +248,50 @@ def start_polygon_list(gx, points_per_polygon):
     if (points_per_polygon == 4):
         return gx.begin_vtxs(gx.vtxs_quad)
 
-def process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
-    gx_commands = []
-    #process faces that all belong to one vertex group (simple case)
-    current_material = None
-    for group in model.groups:
-        gx_commands.append(gx.push())
+def write_face(gx, model, mesh, face, scale_factor, texture_offsets, vtx10=False):
+    commands = []
+    material = model.materials[face.material]
+    if not face.smooth_shading:
+        commands.append(gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2]))
+    for vertex_index in range(len(face.vertices)):
+        if material.texture:
+            size = material.texture_size
+            ds_u = face.uvlist[vertex_index][0] * size[0]
+            ds_v = (1.0 - face.uvlist[vertex_index][1]) * size[1]
+            commands.append(gx.texcoord(ds_u, ds_v))
+        if face.smooth_shading:
+            commands.append(write_normal(gx, face.vertex_normals[vertex_index]))
+        vertex_location = mesh.vertices[face.vertices[vertex_index]].location
+        commands.append(write_vertex(gx, vertex_location, scale_factor, vtx10))
+    return list(flatten(commands))
 
-        #store this transformation offset for later
-        if group != "default":
-            group_offsets[group].append(gx.offset + 1) #skip over the command itself; we need a reference to the parameters
+def write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
+    commands = []
+    faces = sorted(mesh.polygons, key=lambda f:
+        (f.vertexGroup(), f.material, len(f.vertices)))
 
-        #emit a default matrix for this group; this makes the T-pose work
-        #if no animation is selected
-        gx_commands.append(gx.mtx_mult_4x4(euclid.Matrix4()))
+    for group, group_faces in groupby(faces, methodcaller("vertexGroup")):
+        commands.append(gx.push())
+        if group == "__mixed":
+            log.warning("This model uses mixed-group polygons! Animation for this is not yet implemented.")
+        if group != "__mixed":
+            # store this transformation offset for the engine to use
+            if not group in group_offsets:
+                group_offsets[group] = []
+            group_offsets[group].append(gx.offset + 1)
+            commands.append(gx.mtx_mult_4x4(euclid.Matrix4()))
+        for material_name, material_faces in groupby(group_faces, attrgetter("material")):
+            commands.append(write_face_attributes(gx, material_name, model, texture_offsets))
+            for length, polytype_faces in groupby(material_faces, lambda f: len(f.vertices)):
+                commands.append(start_polygon_list(gx, length))
+                for face in polytype_faces:
+                    commands.append(write_face(gx, model, mesh, face, scale_factor, texture_offsets, vtx10=False))
+        commands.append(gx.pop())
+    return list(flatten(commands))
 
-        for polytype in range(3,5):
-            gx_commands.append(start_polygon_list(gx, polytype))
-
-            for face in mesh.polygons:
-                if (face.vertexGroup() == group and not face.isMixed() and
-                        len(face.vertices) == polytype):
-                    if current_material != face.material:
-                        current_material = face.material
-                        gx_commands.append(write_face_attributes(gx, face, model, texture_offsets))
-                        # on material edges, we need to start a new list
-                        gx_commands.append(start_polygon_list(gx, polytype))
-                    if not face.smooth_shading:
-                        gx_commands.append(gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2]))
-                    for p in range(len(face.vertices)):
-                        # uv coordinate
-                        if model.materials[current_material].texture:
-                            # two things here:
-                            # 1. The DS has limited precision, and expects texture coordinates based on the size of the texture, so
-                            #    we multiply the UV coordinates such that 0.0, 1.0 maps to 0.0, <texture size>
-                            # 2. UV coordinates are typically specified relative to the bottom-left of the image, but the DS again
-                            #    expects coordinates from the top-left, so we need to invert the V coordinate to compensate.
-                            size = model.materials[face.material].texture_size
-                            gx_commands.append(gx.texcoord(face.uvlist[p][0] * size[0], (1.0 - face.uvlist[p][1]) * size[1]))
-                        if face.smooth_shading:
-                            gx_commands.append(write_normal(gx, face.vertex_normals[p]))
-                        vertex_location = mesh.vertices[face.vertices[p]].location
-                        gx_commands.append(write_vertex(gx, vertex_location, scale_factor, vtx10))
-        gx_commands.append(gx.pop())
-    return list(flatten(gx_commands))
-
-def process_polygroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
-    # now process mixed faces; similar, but we need to switch matricies *per point* rather than per face
-    current_material = None
-    for polytype in range(3,5):
-        start_polygon_list(gx, polytype)
-        for face in mesh.polygons:
-            if len(face.vertices) == polytype and face.isMixed():
-                if current_material != face.material:
-                    current_material = face.material
-                    write_face_attributes(gx, face, model, texture_offsets)
-                    # on material edges, we need to start a new list
-                    start_polygon_list(gx, polytype)
-                if not face.smooth_shading:
-                    gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
-                for p in range(len(face.vertices)):
-                    point_index = face.vertices[p]
-                    gx.push()
-
-                    # store this transformation offset for later
-                    group = mesh.vertices[point_index].group
-                    if not group in group_offsets:
-                        group_offsets[group] = []
-                    # skip over the command itself; we need a reference to
-                    # the parameters
-                    group_offsets[group].append(gx.offset + 1)
-
-                    gx.mtx_mult_4x4(euclid.Matrix4())
-
-                    if face.smooth_shading:
-                        write_normal(gx, face.vertex_normals[p])
-                    vertex_location = mesh.vertices[point_index].location
-                    write_vertex(gx, vertex_location, scale_factor, vtx10)
-                    gx.pop()
+def sort_polygons(polygon_list):
+    return sorted(polygon_list, lambda p:
+        (p.isMixed(), p.vertexGroup(), p.material, len(p.vertices)))
 
 def generate_bounding_sphere(_, mesh):
     sphere = mesh.bounding_sphere()
@@ -351,45 +320,61 @@ def output_bounding_sphere(fp, mesh):
 def generate_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
     gx = gc.Emitter()
 
-    dsgx_chunk = generate_dsgx(gx, model, mesh, group_offsets, texture_offsets, vtx10)
+    commands = generate_command_list(gx, model, mesh, group_offsets, texture_offsets, vtx10)
+    call_list, _ = generate_gl_call_list(commands)
+    dsgx_chunk = generate_dsgx(mesh.name, call_list)
     # fp.write(dsgx_chunk)
     bsph_chunk = generate_bounding_sphere(None, mesh)
 
     #output the cull-cost for the object
     log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
-    cost_chunk = wrap_chunk("COST", to_dsgx_string(mesh.name) +
-        struct.pack("<II", mesh.max_cull_polys(), gx.cycles))
+    # cost_chunk = wrap_chunk("COST", to_dsgx_string(mesh.name) +
+    #     struct.pack("<II", mesh.max_cull_polys(), gx.cycles))
+    cost_chunk = generate_cost(mesh, commands)
     # fp.write(cost_chunk)
     return [dsgx_chunk, bsph_chunk, cost_chunk]
 
-def generate_dsgx(gx, model, mesh, group_offsets, texture_offsets, vtx10=False):
+def generate_cost(mesh, commands):
+    costs = {
+        0x40: 1,
+        0x20: 1,
+        0x30: 4,
+        0x18: 35,
+        0x1B: 22,
+        0x21: 9,  # TODO: This should be 12
+        0x29: 1,
+        0x12: 36,
+        0x11: 17,
+        0x31: 4,
+        0x22: 1,
+        0x2A: 1,
+        0x2B: 1,
+        0x24: 8,
+        0x23: 9,
+    }
+    cycles = sum(costs[command['instruction']] for command in commands)
+    return wrap_chunk("COST", struct.pack("< 32s I I", to_dsgx_string(mesh.name), mesh.max_cull_polys(), cycles))
+
+def generate_dsgx(mesh_name, call_list):
+    return wrap_chunk("DSGX", to_dsgx_string(mesh_name) + call_list)
+
+def generate_command_list(gx, model, mesh, group_offsets, texture_offsets, vtx10=False):
     gx_commands = []
     gx_commands.append(generate_defaults(None))
-    # write_sane_defaults(gx)
-
     scale_factor = determine_scale_factor_new(mesh)
-
     gx_commands.append(gc.push())
     gx_commands.append(gc.mtx_mult_4x4(model.global_matrix))
-    # gx.push()
-    # gx.mtx_mult_4x4(model.global_matrix)
-
     if scale_factor != 1.0:
         inverse_scale = 1 / scale_factor
         gx_commands.append(gc.mtx_scale(inverse_scale, inverse_scale, inverse_scale))
-        # gx.mtx_scale(inverse_scale, inverse_scale, inverse_scale)
 
     log.debug("Global Matrix: ")
     log.debug(model.global_matrix)
 
-    gx_commands.append(process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10))
-    # process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+    gx_commands.append(write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10))
 
     gx_commands.append(gc.pop())
-    # gx.pop() # mtx scale
-
-    # return wrap_chunk("DSGX", to_dsgx_string(mesh.name) + gx.write())
-    return wrap_chunk("DSGX", to_dsgx_string(mesh.name) + generate_gl_call_list(list(flatten(gx_commands))))
+    return list(flatten(gx_commands))
 
 def generate_gl_call_list(commands):
     call_list = []
@@ -398,11 +383,11 @@ def generate_gl_call_list(commands):
         command_bytes += b"".join(command["params"])
         call_list.append(command_bytes)
     call_list = b"".join(call_list)
-    return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list)
+    return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list), None
 
 # @reconcile(generate_mesh)
 def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
-    # generate_mesh(None, model, mesh, group_offsets, texture_offsets, vtx10)
+    # generate_mesh(None, model, mesh, defaultdict(list), defaultdict(list), vtx10)
     gx = gc.Emitter()
 
     write_sane_defaults(gx)
@@ -419,8 +404,7 @@ def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
     log.debug("Global Matrix: ")
     log.debug(model.global_matrix)
 
-    process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
-    # process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
+    write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10)
 
     gx.pop() # mtx scale
 
@@ -508,6 +492,8 @@ def output_animations(fp, model):
                     count = count + 1
         fp.write(wrap_chunk("BANI", bani))
         log.debug("Wrote %d matricies", count)
+
+
 
 class Writer:
     def write(self, filename, model, vtx10=False):
