@@ -97,14 +97,14 @@ def generate_texture_attributes(gx, texture_name, material, texture_offsets_list
     # runtime, use zero for the offset and format. It will be filled in by the
     # engine during asset loading.
     return [gc.teximage_param(width, height, format=DIRECT_TEXTURE,
-        offset=DEFAULT_OFFSET), gc.texpllt_base(0, 0)]
+        offset=DEFAULT_OFFSET, texture_name=texture_name), gc.texpllt_base(0, 0)]
 
 @reconcile(generate_texture_attributes)
 def write_texture_attributes(gx, texture_name, material, texture_offsets_list):
     texture_offsets_list[texture_name].append(gx.offset + 1)
 
     size = material.texture_size
-    return [gx.teximage_param(256 * 1024, size[0], size[1], 7),
+    return [gx.teximage_param(256 * 1024, size[0], size[1], 7, texture_name=texture_name),
         gx.texpllt_base(0, 0)] # 0 for the offset and format; this will
                                # be filled in by the engine during asset
                                # loading.
@@ -297,7 +297,7 @@ def generate_faces(_, model, mesh, scale_factor, group_offsets, texture_offsets,
             # if not group in group_offsets:
             #     group_offsets[group] = []
             # group_offsets[group].append(gc.offset + 1)
-            commands.append(gc.mtx_mult_4x4(euclid.Matrix4()))
+            commands.append(gc.mtx_mult_4x4(euclid.Matrix4(), tag=group))
         for material_name, material_faces in groupby(group_faces, attrgetter("material")):
             commands.append(generate_face_attributes(gc, material_name, model, texture_offsets))
             for length, polytype_faces in groupby(material_faces, lambda f: len(f.vertices)):
@@ -322,7 +322,7 @@ def write_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, v
             if not group in group_offsets:
                 group_offsets[group] = []
             group_offsets[group].append(gx.offset + 1)
-            commands.append(gx.mtx_mult_4x4(euclid.Matrix4()))
+            commands.append(gx.mtx_mult_4x4(euclid.Matrix4(), tag=group))
         for material_name, material_faces in groupby(group_faces, attrgetter("material")):
             commands.append(write_face_attributes(gx, material_name, model, texture_offsets))
             for length, polytype_faces in groupby(material_faces, lambda f: len(f.vertices)):
@@ -364,18 +364,24 @@ def generate_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
     gx = gc.Emitter()
 
     commands = generate_command_list(gx, model, mesh, group_offsets, texture_offsets, vtx10)
-    call_list, _ = generate_gl_call_list(commands)
+    call_list, references = generate_gl_call_list(commands)
     dsgx_chunk = generate_dsgx(mesh.name, call_list)
-    # fp.write(dsgx_chunk)
     bsph_chunk = generate_bounding_sphere(None, mesh)
 
-    #output the cull-cost for the object
     log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
-    # cost_chunk = wrap_chunk("COST", to_dsgx_string(mesh.name) +
-    #     struct.pack("<II", mesh.max_cull_polys(), gx.cycles))
     cost_chunk = generate_cost(mesh, commands)
-    # fp.write(cost_chunk)
-    return [dsgx_chunk, bsph_chunk, cost_chunk]
+    return [dsgx_chunk, bsph_chunk, cost_chunk], references
+    # return generate_references(commands, 0x18), generate_references(commands, 0x2A)
+
+def generate_references(commands, command_id):
+    references = defaultdict(list)
+    offset = 0
+    for command in commands:
+        offset += 1  # Go past the command word; the references point to the command data instead
+        if command["instruction"] == command_id and command.get("tag"):
+            references[command["tag"]].append(offset)
+        offset += len(command["params"])
+    return references
 
 def generate_cost(mesh, commands):
     costs = {
@@ -426,7 +432,7 @@ def generate_gl_call_list(commands):
         command_bytes += b"".join(command["params"])
         call_list.append(command_bytes)
     call_list = b"".join(call_list)
-    return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list), None
+    return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list), dict(bones=generate_references(commands, 0x18), textures=generate_references(commands, 0x2A))
 
 @reconcile(generate_mesh)
 def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
@@ -459,7 +465,8 @@ def output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10=False):
     cost_chunk = wrap_chunk("COST", to_dsgx_string(mesh.name) +
         struct.pack("<II", mesh.max_cull_polys(), gx.cycles))
     fp.write(cost_chunk)
-    return [dsgx_chunk, bsph_chunk, cost_chunk]
+    return [dsgx_chunk, bsph_chunk, cost_chunk], dict(bones=group_offsets, textures=texture_offsets)
+    # return group_offsets, texture_offsets
 
 def generate_bones(_,  model, mesh, group_offsets):
     if not model.animations:
@@ -587,18 +594,38 @@ def output_animations(fp, model):
         log.debug("Wrote %d matricies", count)
     return chunks
 
+def generate(_, model, vtx10=False):
+    chunks = []
+    for mesh_name in model.meshes:
+        mesh = model.meshes[mesh_name]
+        mesh_chunks, references = generate_mesh(None, model, mesh, None, None, vtx10)
+        chunks.append(mesh_chunks)
+        chunks.append(generate_bones(None, model, mesh, references["bones"]))
+        chunks.append(generate_textures(None, model, mesh, references["textures"]))
+    chunks.append(generate_animations(None, model))
+    return list(flatten(chunk for chunk in chunks if chunk))
+
+@reconcile(generate)
+def write(fp, model, vtx10=False):
+    #first things first, output the main data
+    chunks = []
+    for mesh_name in model.meshes:
+        mesh = model.meshes[mesh_name]
+        group_offsets = defaultdict(list)
+        texture_offsets = defaultdict(list)
+        mesh_chunks, references = output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10)
+        chunks.append(mesh_chunks)
+        chunks.append(output_bones(fp, model, mesh, group_offsets))
+        chunks.append(output_textures(fp, model, mesh, texture_offsets))
+
+    chunks.append(output_animations(fp, model))
+    return list(flatten(chunk for chunk in chunks if chunk))
+
 class Writer:
     def write(self, filename, model, vtx10=False):
         fp = open(filename, "wb")
-        #first things first, output the main data
-        for mesh_name in model.meshes:
-            mesh = model.meshes[mesh_name]
-            group_offsets = defaultdict(list)
-            texture_offsets = defaultdict(list)
-            output_mesh(fp, model, mesh, group_offsets, texture_offsets, vtx10)
-            output_bones(fp, model, mesh, group_offsets)
-            output_textures(fp, model, mesh, texture_offsets)
-
-        output_animations(fp, model)
-
+        chunks = generate(None, model, vtx10)
+        # print(chunks)
+        fp.write(b"".join(chunks))
+        # write(fp, model, vtx10)
         fp.close()

@@ -5,8 +5,10 @@ import euclid3 as euclid
 
 _24bit_to_16bit = lambda components: scale_components(components, 1 / 8, int)
 
-def command(command, parameters=None):
+def command(command, parameters=None, tag=None):
     parameters = parameters if parameters else []
+    if tag:
+        return dict(instruction=command, params=parameters, tag=tag)
     return dict(instruction=command, params=parameters)
 
 def pack_bits(*bit_value_pairs):
@@ -70,13 +72,13 @@ def dif_amb(diffuse, ambient, setvertex=False, use256=False):
     # self.cycles += 4
     return cmd
 
-def mtx_mult_4x4(matrix):
+def mtx_mult_4x4(matrix, tag=None):
     return command(0x18, [
             struct.pack("<i",to_fixed_point(matrix.a)), struct.pack("<i",to_fixed_point(matrix.b)), struct.pack("<i",to_fixed_point(matrix.c)), struct.pack("<i",to_fixed_point(matrix.d)),
             struct.pack("<i",to_fixed_point(matrix.e)), struct.pack("<i",to_fixed_point(matrix.f)), struct.pack("<i",to_fixed_point(matrix.g)), struct.pack("<i",to_fixed_point(matrix.h)),
             struct.pack("<i",to_fixed_point(matrix.i)), struct.pack("<i",to_fixed_point(matrix.j)), struct.pack("<i",to_fixed_point(matrix.k)), struct.pack("<i",to_fixed_point(matrix.l)),
             struct.pack("<i",to_fixed_point(matrix.m)), struct.pack("<i",to_fixed_point(matrix.n)), struct.pack("<i",to_fixed_point(matrix.o)), struct.pack("<i",to_fixed_point(matrix.p))
-        ])
+        ], tag=tag)
     # self.cycles += 35
 
 def mtx_scale(sx, sy, sz):
@@ -159,7 +161,7 @@ def texcoord(u, v):
     # self.cycles += 1
 
 def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
-    transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0):
+                   transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0, texture_name=None):
     #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
     #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
 
@@ -177,7 +179,7 @@ def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
         ((26, 28), format),
         (29, palette_transparency),
         ((30, 31), transform_mode))
-    return command(0x2A, [struct.pack("<I", attr)])
+    return command(0x2A, [struct.pack("<I", attr)], texture_name)
     # self.cycles += 1
 
 def texpllt_base(offset, texture_format):
@@ -227,8 +229,10 @@ class Emitter:
         self.offset = 0
         self.cycles = 0
 
-    def command(self, command, parameters = []):
+    def command(self, command, parameters = [], tag=None):
         cmd = {'instruction': command, 'params': parameters}
+        if tag:
+            cmd['tag'] = tag
         self.commands.append(cmd)
         self.offset += 1 + len(parameters)
         return cmd
@@ -459,13 +463,13 @@ class Emitter:
         return cmd
 
     #note: expects a euclid.py matrix, any other format will not work
-    def mtx_mult_4x4(self, matrix):
+    def mtx_mult_4x4(self, matrix, tag=None):
         cmd = self.command(0x18, [
                 struct.pack("<i",to_fixed_point(matrix.a)), struct.pack("<i",to_fixed_point(matrix.b)), struct.pack("<i",to_fixed_point(matrix.c)), struct.pack("<i",to_fixed_point(matrix.d)),
                 struct.pack("<i",to_fixed_point(matrix.e)), struct.pack("<i",to_fixed_point(matrix.f)), struct.pack("<i",to_fixed_point(matrix.g)), struct.pack("<i",to_fixed_point(matrix.h)),
                 struct.pack("<i",to_fixed_point(matrix.i)), struct.pack("<i",to_fixed_point(matrix.j)), struct.pack("<i",to_fixed_point(matrix.k)), struct.pack("<i",to_fixed_point(matrix.l)),
                 struct.pack("<i",to_fixed_point(matrix.m)), struct.pack("<i",to_fixed_point(matrix.n)), struct.pack("<i",to_fixed_point(matrix.o)), struct.pack("<i",to_fixed_point(matrix.p))
-            ])
+            ], tag=tag)
         self.cycles += 35
         return cmd
 
@@ -486,7 +490,7 @@ class Emitter:
         self.cycles += 1
         return cmd
 
-    def teximage_param(self, offset, width, height, format = 0, palette_transparency = 0, transform_mode = 0, u_repeat = 1, v_repeat = 1, u_flip = 0, v_flip = 0):
+    def teximage_param(self, offset, width, height, format = 0, palette_transparency = 0, transform_mode = 0, u_repeat = 1, v_repeat = 1, u_flip = 0, v_flip = 0, texture_name=None):
         #texture width/height is coded as Size = (8 << N). Thus, the range is 8..1024 (field size is 3 bits) and only N gets encoded, so we
         #need to convert incoming normal textures to this notation. (ie, 1024 would get written out as 7, since 1024 == (8 << 7))
         width_index = 0
@@ -510,7 +514,7 @@ class Emitter:
             ((palette_transparency & 0x1) << 29) +
             ((transform_mode & 0x3) << 30))
         cmd = self.command(0x2A, [
-            struct.pack("<I",attr)])
+            struct.pack("<I",attr)], texture_name)
         self.cycles += 1
         return cmd
 
