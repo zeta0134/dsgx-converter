@@ -120,13 +120,6 @@ def generate_face_attributes(gx, material_name, model, texture_offsets_list):
 def generate_normal(gx, normal_vector):
     return gc.normal(*normal_vector)
 
-@reconcile(generate_normal)
-def write_normal(gx, normal):
-    if normal == None:
-        log.warn("Problem: no normal for this point!", face.vertices)
-    else:
-        return gx.normal(*normal)
-
 def generate_vertex(gx, location, scale_factor, vtx10=False):
     vtx = gc.vtx_10 if vtx10 else gc.vtx_16
     return vtx(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
@@ -164,27 +157,9 @@ def generate_face(_, model, mesh, face, scale_factor, texture_offsets, vtx10=Fal
             ds_v = (1.0 - face.uvlist[vertex_index][1]) * size[1]
             commands.append(gc.texcoord(ds_u, ds_v))
         if face.smooth_shading:
-            commands.append(write_normal(gc, face.vertex_normals[vertex_index]))
+            commands.append(generate_normal(gc, face.vertex_normals[vertex_index]))
         vertex_location = mesh.vertices[face.vertices[vertex_index]].location
         commands.append(generate_vertex(gc, vertex_location, scale_factor, vtx10))
-    return list(flatten(commands))
-
-@reconcile(generate_face)
-def write_face(gx, model, mesh, face, scale_factor, texture_offsets, vtx10=False):
-    commands = []
-    material = model.materials[face.material]
-    if not face.smooth_shading:
-        commands.append(gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2]))
-    for vertex_index in range(len(face.vertices)):
-        if material.texture:
-            size = material.texture_size
-            ds_u = face.uvlist[vertex_index][0] * size[0]
-            ds_v = (1.0 - face.uvlist[vertex_index][1]) * size[1]
-            commands.append(gx.texcoord(ds_u, ds_v))
-        if face.smooth_shading:
-            commands.append(write_normal(gx, face.vertex_normals[vertex_index]))
-        vertex_location = mesh.vertices[face.vertices[vertex_index]].location
-        commands.append(write_vertex(gx, vertex_location, scale_factor, vtx10))
     return list(flatten(commands))
 
 def generate_faces(_, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
