@@ -245,6 +245,44 @@ def start_polygon_list(gx, points_per_polygon):
     if (points_per_polygon == 4):
         return gx.begin_vtxs(gx.vtxs_quad)
 
+def write_face(gx, model, face, group_offsets, texture_offsets, vtx10=False):
+    material = model.materials(face.material)
+    if not face.smooth_shading:
+        gx.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2])
+    for v in face.vertices:
+        if material.texture:
+            size = material.texture_size
+            ds_u = face.uvlist[v][0] * size[0]
+            ds_v = (1.0 - face.uvlist[p][1]) * size[1]
+            gx.texcoord(ds_u, ds_v)
+        if face.smooth_shading:
+            write_normal(gx, face.vertex_normals[v])
+        vertex_location = model.vertices[v].location
+        write_vertex(gx, vertex_location, scale_factor, vtx10)
+
+def write_faces(gx, model, faces, scale_factor, group_offsets, texture_offsets, vtx10=False):
+    last_group = "default"
+    last_material = None
+    last_length = 0
+
+    for face in faces:
+        if face.isMixed() == False and face.vertexGroup() != last_group:
+            # store this transformation offset for the engine to use
+            if not group in group_offsets:
+                group_offsets[group] = []
+            group_offsets[group].append(gx.offset + 1)
+            gx.mtx_mult_4x4(euclid.Matrix4())
+        if face.material != last_material:
+            last_material = face.material
+            last_length = len(face.vertices)
+            write_face_attributes(gx, face, model, texture_offsets)
+            start_polygon_list(gx, len(face.vertices))
+        if last_length != len(face.vertices):
+            start_polygon_list(gx, len(face.vertices))
+
+        write_face(gx, model, face, scale_factor, texture_offsets, vtx10=False)
+
+
 def process_monogroup_faces(gx, model, mesh, scale_factor, group_offsets, texture_offsets, vtx10=False):
     #process faces that all belong to one vertex group (simple case)
     current_material = None
@@ -323,6 +361,10 @@ def process_polygroup_faces(gx, model, mesh, scale_factor, group_offsets, textur
                     vertex_location = mesh.vertices[point_index].location
                     write_vertex(gx, vertex_location, scale_factor, vtx10)
                     gx.pop()
+
+def sort_polygons(polygon_list):
+    return sorted(polygon_list, lambda p:
+        (p.isMixed(), p.vertexGroup(), p.material, len(p.vertices)))
 
 def output_bounding_sphere(fp, mesh):
     bsph = bytes()
@@ -439,6 +481,8 @@ def output_animations(fp, model):
                     count = count + 1
         fp.write(wrap_chunk("BANI", bani))
         log.debug("Wrote %d matricies", count)
+
+
 
 class Writer:
     def write(self, filename, model, vtx10=False):

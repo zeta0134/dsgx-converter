@@ -187,6 +187,8 @@ class Model:
             self.smooth_shading = smooth
 
         def vertexGroup(self):
+            if self.isMixed():
+                return "__mixed"
             return self.model.vertices[self.vertices[0]].group
 
         def isMixed(self):
