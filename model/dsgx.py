@@ -266,9 +266,7 @@ def generate_bones(animations, mesh_name, bone_references):
     animation = animations[next(iter(animations.keys()))]
     bone_count = len(animation.channels.keys())
     bones = []
-    for bone_name in sorted(animation.channels.keys()):
-        if bone_name == "default":
-            continue
+    for bone_name in sorted(set(animation.channels.keys()) - {"default"}):
         bone_offsets = bone_references.get(("bone", bone_name), [])
         bone_name = to_dsgx_string(bone_name)
         bones.append(struct.pack("< 32s I %dI" % len(bone_offsets), bone_name, len(bone_offsets), *bone_offsets))
@@ -292,9 +290,7 @@ def generate_animation(animation, animation_name):
     length = animation.length
     matrices = []
     for frame in range(animation.length):
-        for bone_name in sorted(animation.channels.keys()):
-            if bone_name == "default":
-                continue
+        for bone_name in sorted(set(animation.channels.keys()) - {"default"}):
             matrix = animation.get_channel_data(bone_name, frame)
             matrices.append(struct.pack("< 16i", _to_fixed_point(matrix.a), _to_fixed_point(matrix.b), _to_fixed_point(matrix.c), _to_fixed_point(matrix.d), _to_fixed_point(matrix.e), _to_fixed_point(matrix.f), _to_fixed_point(matrix.g), _to_fixed_point(matrix.h), _to_fixed_point(matrix.i), _to_fixed_point(matrix.j), _to_fixed_point(matrix.k), _to_fixed_point(matrix.l), _to_fixed_point(matrix.m), _to_fixed_point(matrix.n), _to_fixed_point(matrix.o), _to_fixed_point(matrix.p)))
     matrices = b"".join(matrices)
