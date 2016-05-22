@@ -12,6 +12,7 @@ import logging, struct
 from collections import defaultdict
 from itertools import groupby
 from operator import methodcaller, attrgetter
+import types
 
 import euclid3 as euclid
 import model.geometry_command as gc
@@ -26,15 +27,21 @@ def reconcile(new):
         def reconciler(*args, **kwargs):
             expected_result = old(*args, **kwargs)
             new_result = new(*args, **kwargs)
-            assert expected_result == new_result, "unable to reconcile function results: %s returned %s but %s returned %s" % (old.__name__, repr(expected_result), new.__name__, repr(new_result))
+            assert expected_result == new_result, \
+                ("unable to reconcile function results: %s returned %s but %s returned %s" %
+                (old.__name__, repr(expected_result), new.__name__,
+                repr(new_result)))
             return expected_result
         return reconciler
     return reconcile_decorator
 
+def compact(iterable):
+    return (element for element in iterable if element)
+
 # from https://stackoverflow.com/a/10824420
 def flatten(container):
     for i in container:
-        if isinstance(i, (list, tuple)):
+        if isinstance(i, (list, tuple, types.GeneratorType)):
             for j in flatten(i):
                 yield j
         else:
@@ -82,21 +89,17 @@ def parse_material_flags(material_name):
         return {}
     flags_string = material_name.split("|")[0]
     flag_parts = (flag.split("=") for flag in flags_string.split(","))
-    flags = ((parts[0], (parts[1] if parts[1:] else True))
-        for parts in flag_parts)
-    return dict(flags)
+    return {parts[0]: parts[1] if parts[1:] else True for parts in flag_parts}
 
 def generate_texture_attributes(material):
-    DIRECT_TEXTURE = 7
-    texture_name = material.texture
     width, height = material.texture_size
     # Since the location and format of the texture will only be known at
     # runtime, use zero for the offset and format. It will be filled in by the
     # engine during asset loading.
-    return [gc.teximage_param(width, height, texture_name=texture_name),
+    return [gc.teximage_param(width, height, texture_name=material.texture),
         gc.texpllt_base(0, 0)]
 
-CLEAR_TEXTURE_PARAMETERS = gc.teximage_param(0, 0, 0, 0)
+CLEAR_TEXTURE_PARAMETERS = gc.teximage_param(0, 0)
 
 def generate_face_attributes(material, flags):
     texture_attributes = (generate_texture_attributes(material)
@@ -111,9 +114,6 @@ def generate_face_attributes(material, flags):
     return list(flatten([texture_attributes,  polygon_attributes,
         material_properties]))
 
-def generate_normal(normal):
-    return gc.normal(*normal)
-
 def generate_vertex(location, scale_factor, vtx10=False):
     vtx = gc.vtx_10 if vtx10 else gc.vtx_16
     return vtx(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
@@ -123,67 +123,67 @@ def determine_scale_factor(box):
     return 1.0 if largest_coordinate <= 7.9 else 7.9 / largest_coordinate
 
 def generate_defaults():
-    # todo: figure out light offsets, if we ever want to have
-    # dynamic scene lights and stuff with vertex colors
-    # default material, if no other material gets specified
     default_diffuse_color = 192, 192, 192
     default_ambient_color = 32, 32, 32
     return [gc.color(64, 64, 64, use_24bit=True),
         gc.polygon_attr(light0=1, light1=1, light2=1, light3=1),
-        gc.dif_amb(default_diffuse_color, default_ambient_color, use_24bit=True)]
+        gc.dif_amb(default_diffuse_color, default_ambient_color,
+        use_24bit=True)]
 
 def generate_polygon_list_start(points_per_polygon):
-    assert points_per_polygon in (3, 4), "Invalid number of points in polygon: %d" % points_per_polygon
+    assert points_per_polygon in (3, 4), \
+        "invalid number of points in polygon: %d" % points_per_polygon
     return gc.begin_vtxs(gc.PrimitiveType.SEPARATE_TRIANGLES
         if points_per_polygon == 3 else
         gc.PrimitiveType.SEPAPATE_QUADRILATERALS)
 
-def generate_face(material, mesh, face, scale_factor, vtx10=False):
-    commands = []
-    if not face.smooth_shading:
-        commands.append(gc.normal(face.face_normal[0], face.face_normal[1], face.face_normal[2]))
-    for vertex_index in range(len(face.vertices)):
+def generate_face(material, vertices, face, scale_factor, vtx10=False):
+    commands = [gc.normal(*face.face_normal)
+        if not face.smooth_shading else None]
+    for i, vertex in enumerate(face.vertices):
         if material.texture:
-            size = material.texture_size
-            ds_u = face.uvlist[vertex_index][0] * size[0]
-            ds_v = (1.0 - face.uvlist[vertex_index][1]) * size[1]
-            commands.append(gc.texcoord(ds_u, ds_v))
+            commands.append(gc.texcoord(
+                face.uvlist[i][0] * material.texture_size[0],
+                (1.0 - face.uvlist[i][1]) * material.texture_size[1]))
         if face.smooth_shading:
-            commands.append(generate_normal(face.vertex_normals[vertex_index]))
-        vertex_location = mesh.vertices[face.vertices[vertex_index]].location
-        commands.append(generate_vertex(vertex_location, scale_factor, vtx10))
-    return list(flatten(commands))
+            commands.append(gc.normal(*face.vertex_normals[i]))
+        commands.append(generate_vertex(vertices[vertex].location,
+            scale_factor, vtx10))
+    return list(compact(flatten(commands)))
 
 def generate_faces(materials, mesh, scale_factor, vtx10=False):
-    commands = []
+    vertex_count = lambda face: len(face.vertices)
+    face_material = attrgetter("material")
+    face_group = methodcaller("vertexGroup")
     faces = sorted(mesh.polygons, key=lambda f:
         (f.vertexGroup(), f.material, len(f.vertices)))
 
-    for group, group_faces in groupby(faces, methodcaller("vertexGroup")):
+    commands = []
+    for group, group_faces in groupby(faces, face_group):
         commands.append(gc.push())
         if group == "__mixed":
-            log.warning("This model uses mixed-group polygons! Animation for this is not yet implemented.")
-        if group != "__mixed":
-            commands.append(gc.mtx_mult_4x4(euclid.Matrix4(), tag=("bone", group)))
-        for material_name, material_faces in groupby(group_faces, attrgetter("material")):
-            commands.append(generate_face_attributes(materials[material_name], parse_material_flags(material_name)))
-            for length, polytype_faces in groupby(material_faces, lambda f: len(f.vertices)):
-                commands.append(generate_polygon_list_start(length))
+            log.warning("use of mixed-group polygons found: animation for this is not yet implemented")
+        else:
+            commands.append(gc.mtx_mult_4x4(euclid.Matrix4(),
+                tag=("bone", group)))
+        for material_name, material_faces in groupby(group_faces,
+            face_material):
+            commands.append(generate_face_attributes(materials[material_name],
+                parse_material_flags(material_name)))
+            for points_per_face, polytype_faces in groupby(material_faces,
+                vertex_count):
+                commands.append(generate_polygon_list_start(points_per_face))
                 for face in polytype_faces:
-                    commands.append(generate_face(materials[face.material], mesh, face, scale_factor, vtx10=False))
+                    commands.append(generate_face(materials[face.material],
+                        mesh.vertices, face, scale_factor, vtx10))
         commands.append(gc.pop())
     return list(flatten(commands))
 
-def sort_polygons(polygon_list):
-    return sorted(polygon_list, lambda p:
-        (p.isMixed(), p.vertexGroup(), p.material, len(p.vertices)))
-
-def generate_bounding_sphere(mesh):
-    sphere = mesh.bounding_sphere()
+def generate_bounding_sphere(mesh_name, sphere):
     log.debug("Bounding sphere of radius %f centered at (%f, %f, %f)",
         sphere[1], sphere[0].x, sphere[0].y, sphere[0].z)
     return wrap_chunk("BSPH", struct.pack("< 32s i i i i",
-        to_dsgx_string(mesh.name), _to_fixed_point(sphere[0].x),
+        to_dsgx_string(mesh_name), _to_fixed_point(sphere[0].x),
         _to_fixed_point(sphere[0].z), _to_fixed_point(sphere[0].y * -1),
         _to_fixed_point(sphere[1])))
 
@@ -191,7 +191,7 @@ def generate_mesh(model, mesh, vtx10=False):
     commands = generate_command_list(model, mesh, vtx10)
     call_list, references = generate_gl_call_list(commands)
     dsgx_chunk = generate_dsgx(mesh.name, call_list)
-    bsph_chunk = generate_bounding_sphere(mesh)
+    bsph_chunk = generate_bounding_sphere(mesh.name, mesh.bounding_sphere())
     cost_chunk = generate_cost(mesh, commands)
     return [dsgx_chunk, bsph_chunk, cost_chunk], references
 
@@ -199,7 +199,10 @@ def generate_references(commands, command_id):
     references = defaultdict(list)
     offset = 0
     for command in commands:
-        offset += 1  # Go past the command word; the references point to the command data instead
+        # Go past the command word; the references point to the command data
+        # instead, as the references only need to modify the data - never the
+        # command.
+        offset += 1
         if command["instruction"] == command_id and command.get("tag"):
             references[command["tag"]].append(offset)
         offset += len(command["params"])
