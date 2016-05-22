@@ -15,7 +15,7 @@ from operator import methodcaller, attrgetter
 
 import euclid3 as euclid
 import model.geometry_command as gc
-from model.geometry_command import to_fixed_point
+from model.geometry_command import _to_fixed_point
 
 log = logging.getLogger()
 WORD_SIZE_BYTES = 4
@@ -103,10 +103,11 @@ def generate_face_attributes(material, flags):
         if material.texture else CLEAR_TEXTURE_PARAMETERS)
     polygon_attributes = gc.polygon_attr(light0=1, light1=1, light2=1, light3=1,
         alpha=int(flags.get("alpha", 31)), polygon_id=int(flags.get("id", 0)))
-    scale = lambda components: gc.scale_components(components, 255)
+    scale = lambda components: gc._scale_components(components, 255)
     material_properties = (gc.dif_amb(scale(material.diffuse),
-        scale(material.ambient), use256=True),
-        gc.spe_emi(scale(material.specular), scale(material.emit), use256=True))
+        scale(material.ambient), use_24bit=True),
+        gc.spe_emi(scale(material.specular), scale(material.emit),
+        use_24bit=True))
     return list(flatten([texture_attributes,  polygon_attributes,
         material_properties]))
 
@@ -127,9 +128,9 @@ def generate_defaults():
     # default material, if no other material gets specified
     default_diffuse_color = 192, 192, 192
     default_ambient_color = 32, 32, 32
-    return [gc.color(64, 64, 64, use256=True),
+    return [gc.color(64, 64, 64, use_24bit=True),
         gc.polygon_attr(light0=1, light1=1, light2=1, light3=1),
-        gc.dif_amb(default_diffuse_color, default_ambient_color, use256=True)]
+        gc.dif_amb(default_diffuse_color, default_ambient_color, use_24bit=True)]
 
 VTXS_TRIANGLE = 0
 VTXS_QUAD = 1
@@ -182,9 +183,9 @@ def generate_bounding_sphere(mesh):
     log.debug("Bounding sphere of radius %f centered at (%f, %f, %f)",
         sphere[1], sphere[0].x, sphere[0].y, sphere[0].z)
     return wrap_chunk("BSPH", struct.pack("< 32s i i i i",
-        to_dsgx_string(mesh.name), to_fixed_point(sphere[0].x),
-        to_fixed_point(sphere[0].z), to_fixed_point(sphere[0].y * -1),
-        to_fixed_point(sphere[1])))
+        to_dsgx_string(mesh.name), _to_fixed_point(sphere[0].x),
+        _to_fixed_point(sphere[0].z), _to_fixed_point(sphere[0].y * -1),
+        _to_fixed_point(sphere[1])))
 
 def generate_mesh(model, mesh, vtx10=False):
     commands = generate_command_list(model, mesh, vtx10)
@@ -292,7 +293,7 @@ def generate_animation(animation, animation_name):
             if bone_name == "default":
                 continue
             matrix = animation.get_channel_data(bone_name, frame)
-            matrices.append(struct.pack("< 16i", to_fixed_point(matrix.a), to_fixed_point(matrix.b), to_fixed_point(matrix.c), to_fixed_point(matrix.d), to_fixed_point(matrix.e), to_fixed_point(matrix.f), to_fixed_point(matrix.g), to_fixed_point(matrix.h), to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l), to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p)))
+            matrices.append(struct.pack("< 16i", _to_fixed_point(matrix.a), _to_fixed_point(matrix.b), _to_fixed_point(matrix.c), _to_fixed_point(matrix.d), _to_fixed_point(matrix.e), _to_fixed_point(matrix.f), _to_fixed_point(matrix.g), _to_fixed_point(matrix.h), _to_fixed_point(matrix.i), _to_fixed_point(matrix.j), _to_fixed_point(matrix.k), _to_fixed_point(matrix.l), _to_fixed_point(matrix.m), _to_fixed_point(matrix.n), _to_fixed_point(matrix.o), _to_fixed_point(matrix.p)))
     matrices = b"".join(matrices)
     return wrap_chunk("BANI", struct.pack("< 32s I %ds" % len(matrices), name, length, matrices))
 
