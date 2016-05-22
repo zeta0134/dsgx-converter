@@ -223,8 +223,10 @@ class Model:
             return self.channels[channel_name][frame]
 
     def create_animation(self, name, data_type, mesh=None):
-        self.animations[name] = self.Animation(data_type, mesh)
-        return self.animations[name]
+        if not data_type in self.animations:
+            self.animations[data_type] = {}
+        self.animations[data_type][name] = self.Animation(data_type, mesh)
+        return self.animations[data_type][name]
 
     def get_animation(self, name):
         return self.animations[name]

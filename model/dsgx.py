@@ -164,7 +164,7 @@ def generate_faces(materials, mesh, scale_factor, vtx10=False):
         if group == "__mixed":
             log.warning("This model uses mixed-group polygons! Animation for this is not yet implemented.")
         if group != "__mixed":
-            commands.append(gc.mtx_mult_4x4(euclid.Matrix4(), tag=group))
+            commands.append(gc.mtx_mult_4x4(euclid.Matrix4(), tag=("bone", group)))
         for material_name, material_faces in groupby(group_faces, attrgetter("material")):
             commands.append(generate_face_attributes(materials[material_name], parse_material_flags(material_name)))
             for length, polytype_faces in groupby(material_faces, lambda f: len(f.vertices)):
@@ -266,7 +266,7 @@ def generate_bones(animations, mesh_name, bone_references):
     for bone_name in sorted(animation.channels.keys()):
         if bone_name == "default":
             continue
-        bone_offsets = bone_references.get(bone_name, [])
+        bone_offsets = bone_references.get(("bone", bone_name), [])
         bone_name = to_dsgx_string(bone_name)
         bones.append(struct.pack("< 32s I %dI" % len(bone_offsets), bone_name, len(bone_offsets), *bone_offsets))
     bones = b"".join(bones)
@@ -303,9 +303,11 @@ def generate(model, vtx10=False):
         mesh = model.meshes[mesh_name]
         mesh_chunks, references = generate_mesh(model, mesh, vtx10)
         chunks.append(mesh_chunks)
-        chunks.append(generate_bones(model.animations, mesh.name, references["bones"]))
+        if "bone" in model.animations:
+            chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
         chunks.append(generate_textures(mesh, references["textures"]))
-    chunks.append(generate_animations(model.animations))
+    if "bone" in model.animations:
+        chunks.append(generate_animations(model.animations["bone"]))
     return list(flatten(chunk for chunk in chunks if chunk))
 
 class Writer:
