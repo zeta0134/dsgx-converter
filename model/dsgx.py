@@ -274,13 +274,13 @@ def generate_bones(_,  model, mesh, group_offsets):
         return
     name = to_dsgx_string(mesh.name)
     animation = model.animations[next(iter(model.animations.keys()))]
-    bone_count = len(animation.nodes.keys())
+    bone_count = len(animation.channels.keys())
     bones = []
-    for node_name in sorted(animation.nodes.keys()):
-        if node_name == "default":
+    for bone_name in sorted(animation.channels.keys()):
+        if bone_name == "default":
             continue
-        bone_name = to_dsgx_string(node_name)
-        bone_offsets = group_offsets.get(node_name, [])
+        bone_offsets = group_offsets.get(bone_name, [])
+        bone_name = to_dsgx_string(bone_name)
         bones.append(struct.pack("< 32s I %dI" % len(bone_offsets), bone_name, len(bone_offsets), *bone_offsets))
     bones = b"".join(bones)
     return wrap_chunk("BONE", struct.pack("< 32s I %ds" % len(bones), name, bone_count, bones))
@@ -302,10 +302,10 @@ def generate_animation(model, animation):
     length = model.animations[animation].length
     matrices = []
     for frame in range(model.animations[animation].length):
-        for node_name in sorted(model.animations[animation].nodes.keys()):
-            if node_name == "default":
+        for bone_name in sorted(model.animations[animation].channels.keys()):
+            if bone_name == "default":
                 continue
-            matrix = model.animations[animation].getTransform(node_name, frame)
+            matrix = model.animations[animation].get_channel_data(bone_name, frame)
             matrices.append(struct.pack("< 16i", to_fixed_point(matrix.a), to_fixed_point(matrix.b), to_fixed_point(matrix.c), to_fixed_point(matrix.d), to_fixed_point(matrix.e), to_fixed_point(matrix.f), to_fixed_point(matrix.g), to_fixed_point(matrix.h), to_fixed_point(matrix.i), to_fixed_point(matrix.j), to_fixed_point(matrix.k), to_fixed_point(matrix.l), to_fixed_point(matrix.m), to_fixed_point(matrix.n), to_fixed_point(matrix.o), to_fixed_point(matrix.p)))
     matrices = b"".join(matrices)
     return wrap_chunk("BANI", struct.pack("< 32s I %ds" % len(matrices), name, length, matrices))
@@ -323,6 +323,6 @@ def generate(_, model, vtx10=False):
 
 class Writer:
     def write(self, filename, model, vtx10=False):
+        chunks = generate(None, model, vtx10)
         with open(filename, "wb") as fp:
-            chunks = generate(None, model, vtx10)
             fp.write(b"".join(chunks))
