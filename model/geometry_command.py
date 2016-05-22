@@ -326,9 +326,6 @@ def vtx_10(x, y, z):
 
     http://problemkaputt.de/gbatek.htm#ds3dpolygondefinitionsbyvertices
     """
-    # same as vtx_16, but using 10bit coordinates with 6bit fractional bits;
-    # this ends up being somewhat less accurate, but consumes one fewer
-    # parameter in the list, and costs one fewer GPU cycle to draw.
     to_fixed_6 = lambda x: _to_fixed_point(x, fraction=6) & 0x3FF
     return _command(0x24, [
         struct.pack("< I", _pack_bits(
