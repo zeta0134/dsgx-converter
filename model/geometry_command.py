@@ -88,11 +88,25 @@ def _to_fixed_point(float_value, fraction=12):
     """
     return int(float_value * 2 ** fraction)
 
+class PrimitiveType:
+    SEPARATE_TRIANGLES = 0
+    SEPAPATE_QUADRILATERALS = 1
+    TRIANGLE_STRIPS = 2
+    QUADRILATERAL_STRIPS = 3
+
 def begin_vtxs(primitive_type):
+    """Start a new list of vertices for the specified primitive_type.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygondefinitionsbyvertices
+    """
     return _command(0x40, [struct.pack("< I", _pack_bits(
         ((0, 1), primitive_type)))])
 
 def color(red, green, blue, use_24bit=False):
+    """Directly set the vertex color for all following vertex commands.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygonattributes
+    """
     change_bitdepth = _24bit_to_16bit if use_24bit else lambda x: x
     red, green, blue = change_bitdepth([red, green, blue])
     return _command(0x20, [struct.pack("< I", _pack_bits(
@@ -100,7 +114,12 @@ def color(red, green, blue, use_24bit=False):
         ((5, 9), green),
         ((10, 14), blue)))])
 
-def dif_amb(diffuse, ambient, setvertex=False, use_24bit=False):
+def dif_amb(diffuse, ambient, use_diffuse_as_vertex_color=False,
+    use_24bit=False):
+    """Set the diffuse and ambient reflection for all following vertex commands.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygonlightparameters
+    """
     change_bitdepth = _24bit_to_16bit if use_24bit else lambda x: x
     diffuse = change_bitdepth(diffuse)
     ambient = change_bitdepth(ambient)
@@ -108,20 +127,37 @@ def dif_amb(diffuse, ambient, setvertex=False, use_24bit=False):
         ((0, 4), diffuse[0]),
         ((5, 9), diffuse[1]),
         ((10, 14), diffuse[2]),
-        (15, setvertex),
+        (15, use_diffuse_as_vertex_color),
         ((16, 20), ambient[0]),
         ((21, 25), ambient[1]),
         ((26, 30), ambient[2])))])
 
 def mtx_mult_4x4(matrix, tag=None):
+    """Multiply the matrix at the top of the stack by the provided matrix.
+
+    http://problemkaputt.de/gbatek.htm#ds3dmatrixloadmultiply
+    """
     return _command(0x18, _pack_fixed_point_matrix_componentwise(matrix),
         tag=tag)
 
 def mtx_scale(sx, sy, sz):
+    """Multiply the matrix at the top of the stack by a scale matrix.
+
+    http://problemkaputt.de/gbatek.htm#ds3dmatrixloadmultiply
+    """
     return _command(0x1B, [struct.pack("< i", _to_fixed_point(axis))
         for axis in (sx, sy, sz)])
 
 def normal(x, y, z):
+    """Calculate the vertex color based on lighting.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygonlightparameters
+    """
+    # Normals are typically represented as unit vectors, but the DS's normal
+    # command is composed entirely of fractional bits. This means that a true
+    # unit vector that faces directly along any of the axes would underflow,
+    # resulting in incorrect lighting. To compensate, reduce the size of all
+    # normal components slightly.
     to_fixed_9 = lambda x: _to_fixed_point(x * 0.95, fraction=9) & 0x3FF
     return _command(0x21, [struct.pack("< I", _pack_bits(
         ((0, 9), to_fixed_9(x)),
@@ -129,20 +165,46 @@ def normal(x, y, z):
         ((20, 29), to_fixed_9(z))))])
 
 class PolygonAttr:
+    class DepthTest:
+        LESS = 0
+        EQUAL = 1
+    class DotPolygons:
+        HIDE = 0
+        RENDER = 1
+    class FarPlaneIntersecting:
+        HIDE = 0
+        RENDER_CLIPPED = 1
+    class Fog:
+        DISABLE = 0
+        ENABLE = 1
+    class Light:
+        DISABLE = 0
+        ENABLE = 1
     class Mode:
         MODULATION = 0
         DECAL = 1
         TOON = 2
         SHADOW = 3
-    class DepthTest:
-        LESS = 0
-        EQUAL = 1
+    class Surface:
+        HIDE = 0
+        RENDER = 1
+    class TranslucentDepth:
+        KEEP_OLD = 0
+        SET_NEW = 1
 
-def polygon_attr(light0=0, light1=0, light2=0, light3=0,
-    mode=PolygonAttr.Mode.MODULATION, front=1, back=0, new_depth=0,
-    farplane_intersecting=1, dot_polygons=1,
-    depth_test=PolygonAttr.DepthTest.LESS, fog_enable=1, alpha=31,
-    polygon_id=0):
+def polygon_attr(light0=PolygonAttr.Light.DISABLE,
+    light1=PolygonAttr.Light.DISABLE, light2=PolygonAttr.Light.DISABLE,
+    light3=PolygonAttr.Light.DISABLE, mode=PolygonAttr.Mode.MODULATION,
+    front=PolygonAttr.Surface.RENDER, back=PolygonAttr.Surface.HIDE,
+    new_depth=PolygonAttr.TranslucentDepth.KEEP_OLD,
+    farplane_intersecting=PolygonAttr.FarPlaneIntersecting.RENDER_CLIPPED,
+    dot_polygons=PolygonAttr.DotPolygons.RENDER,
+    depth_test=PolygonAttr.DepthTest.LESS, fog_enable=PolygonAttr.Fog.ENABLE,
+    alpha=31, polygon_id=0):
+    """Set various attributes for the next BEGIN_VTXS command.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygonattributes
+    """
     return _command(0x29, [struct.pack("< I", _pack_bits(
         (0, light0),
         (1, light1),
@@ -160,12 +222,24 @@ def polygon_attr(light0=0, light1=0, light2=0, light3=0,
         ((24, 29), polygon_id)))])
 
 def pop():
+    """Remove one matrix from the top of the matrix stack.
+
+    http://problemkaputt.de/gbatek.htm#ds3dmatrixstack
+    """
     return _command(0x12, [struct.pack("< I", 1)])
 
 def push():
+    """Add another matrix to the top of the matrix stack.
+
+    http://problemkaputt.de/gbatek.htm#ds3dmatrixstack
+    """
     return _command(0x11)
 
 def spe_emi(specular, emit, use_specular_table=False, use_24bit=False):
+    """Set the specular and emit reflection for all following vertex commands.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygonlightparameters
+    """
     change_bitdepth = _24bit_to_16bit if use_24bit else lambda x: x
     specular = change_bitdepth(specular)
     emit = change_bitdepth(emit)
@@ -179,17 +253,48 @@ def spe_emi(specular, emit, use_specular_table=False, use_24bit=False):
         ((26, 30), emit[2])))])
 
 def texcoord(u, v):
+    """Specifies the source texel in the current texture for the next vertex.
+
+    http://problemkaputt.de/gbatek.htm#ds3dtextureattributes
+    """
     to_fixed_4 = lambda x: _to_fixed_point(x, fraction=4) & 0xFFFF
     return _command(0x22, [
         struct.pack("< I", _pack_bits(
             ((0, 15), to_fixed_4(u)),
             ((16, 31), to_fixed_4(v))))])
 
-def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
-    transform_mode=0, u_repeat=1, v_repeat=1, u_flip=0, v_flip=0,
+class TeximageParam:
+    class Flip:
+        NO = 0
+        YES = 1
+    class Format:
+        NO_TEXTURE = 0
+        A3I5 = 1
+        PALETTED_4_COLOR = 2
+        PALETTED_16_COLOR = 3
+        PALETTED_256_COLOR = 4
+        COMPRESSED_4x4 = 5
+        A5I3 = 6
+        DIRECT = 7
+    class Repeat:
+        CLAMP = 0
+        REPEAT = 1
+    class Color0:
+        DISPLAYED = 0
+        TRANSPARENT = 1
+
+def teximage_param(width, height, vram_offset=0,
+    format=TeximageParam.Format.NO_TEXTURE,
+    palette_transparency=TeximageParam.Color0.DISPLAYED, transform_mode=0,
+    u_repeat=TeximageParam.Repeat.REPEAT, v_repeat=TeximageParam.Repeat.REPEAT,
+    u_flip=TeximageParam.Flip.NO, v_flip=TeximageParam.Flip.NO,
     texture_name=None):
+    """Specify which texture is used and how to interpret it.
+
+    http://problemkaputt.de/gbatek.htm#ds3dtextureattributes
+    """
     return _command(0x2A, [struct.pack("< I", _pack_bits(
-        ((0, 15), int(offset / 8)),
+        ((0, 15), int(vram_offset / 8)),
         (16, u_repeat),
         (17, v_repeat),
         (18, u_flip),
@@ -201,12 +306,26 @@ def teximage_param(width, height, offset=0, format=0, palette_transparency=0,
         ((30, 31), transform_mode)))], tag=texture_name)
 
 def texpllt_base(offset, texture_format):
-    FOUR_COLOR_PALETTE = 2
-    shift = 8 if texture_format == FOUR_COLOR_PALETTE else 16
+    """Set the palette offset for paletted textures.
+
+    http://problemkaputt.de/gbatek.htm#ds3dtextureattributes
+    """
+    shift = 8 if texture_format == TeximageParam.Format.PALETTED_4_COLOR else 16
     return _command(0x2B, [struct.pack("< I", _pack_bits(
         ((0, 12), offset >> shift)))])
 
 def vtx_10(x, y, z):
+    """Specify a vertex with 1.3.6 fixed point components.
+
+    This is similar to vtx_16, but is less accurate in exchange for requiring
+    one less argument word. This can result in significant savings in space and
+    FIFO bandwidth.
+
+    Overflow is not handled at all, so passing coordinates larger than +/-2 ** 3
+    will wrap and produce graphical artifacts.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygondefinitionsbyvertices
+    """
     # same as vtx_16, but using 10bit coordinates with 6bit fractional bits;
     # this ends up being somewhat less accurate, but consumes one fewer
     # parameter in the list, and costs one fewer GPU cycle to draw.
@@ -218,13 +337,16 @@ def vtx_10(x, y, z):
             ((20, 29), to_fixed_6(z))))])
 
 def vtx_16(x, y, z):
-    # given vertex coordinates as floats, convert them into
-    # 16bit fixed point numerals with 12bit fractional parts,
-    # and pack them into two commands.
+    """Specify a vertex with 1.3.12 fixed point components.
 
-    # note: this command is ignoring overflow completely, do note that
-    # values outside of the range (approx. -8 to 8) will produce strange
-    # results.
+    This vertex format requires two argument words, but has higher precision
+    than the other vertex commands.
+
+    Overflow is not handled at all, so passing coordinates larger than +/-2 ** 3
+    will wrap and produce graphical artifacts.
+
+    http://problemkaputt.de/gbatek.htm#ds3dpolygondefinitionsbyvertices
+    """
     to_fixed_12 = lambda x: _to_fixed_point(x, fraction=12) & 0xFFFF
     return _command(0x23, [
         struct.pack("< I", _pack_bits(

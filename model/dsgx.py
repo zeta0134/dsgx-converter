@@ -132,11 +132,11 @@ def generate_defaults():
         gc.polygon_attr(light0=1, light1=1, light2=1, light3=1),
         gc.dif_amb(default_diffuse_color, default_ambient_color, use_24bit=True)]
 
-VTXS_TRIANGLE = 0
-VTXS_QUAD = 1
 def generate_polygon_list_start(points_per_polygon):
     assert points_per_polygon in (3, 4), "Invalid number of points in polygon: %d" % points_per_polygon
-    return gc.begin_vtxs(VTXS_TRIANGLE if points_per_polygon == 3 else VTXS_QUAD)
+    return gc.begin_vtxs(gc.PrimitiveType.SEPARATE_TRIANGLES
+        if points_per_polygon == 3 else
+        gc.PrimitiveType.SEPAPATE_QUADRILATERALS)
 
 def generate_face(material, mesh, face, scale_factor, vtx10=False):
     commands = []
