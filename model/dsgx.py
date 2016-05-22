@@ -302,9 +302,11 @@ def generate(model, vtx10=False):
         mesh = model.meshes[mesh_name]
         mesh_chunks, references = generate_mesh(model, mesh, vtx10)
         chunks.append(mesh_chunks)
-        chunks.append(generate_bones(model.animations, mesh.name, references["bones"]))
+        if "bone" in model.animations:
+            chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
         chunks.append(generate_textures(mesh, references["textures"]))
-    chunks.append(generate_animations(model.animations))
+    if "bone" in model.animations:
+        chunks.append(generate_animations(model.animations["bone"]))
     return list(flatten(chunk for chunk in chunks if chunk))
 
 class Writer:
