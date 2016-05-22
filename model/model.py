@@ -209,24 +209,24 @@ class Model:
             self.smooth_shading = False
 
     class Animation:
-        def __init__(self):
-            self.nodes = {}
+        def __init__(self, data_type, mesh=None):
+            self.channels = {}
             self.length = 0 #in frames
+            self.data_type = data_type
+            self.mesh = mesh
 
-        def addNode(self, node_name, transform_list):
-            #node_name = "Armature|"+node_name
-            log.debug("Added animation node: %s", node_name)
-            self.nodes[node_name] = transform_list
+        def add_channel(self, channel_name, frame_values):
+            log.debug("Added animation channel: %s", channel_name)
+            self.channels[channel_name] = frame_values
 
-        def getTransform(self, node_name, frame):
-            return self.nodes[node_name][frame]
+        def get_channel_data(self, channel_name, frame):
+            return self.channels[channel_name][frame]
 
-    def createAnimation(self, name):
-        self.animations[name] = self.Animation()
-
+    def create_animation(self, name, data_type, mesh=None):
+        self.animations[name] = self.Animation(data_type, mesh)
         return self.animations[name]
 
-    def getAnimation(self, name):
+    def get_animation(self, name):
         return self.animations[name]
 
     def addMaterial(self, name, ambient, specular, diffuse, emit, texture=None, texwidth=0, texheight=0):
