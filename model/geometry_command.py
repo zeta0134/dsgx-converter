@@ -1,15 +1,46 @@
+"""Implements the packing and generation of NDS graphics commands.
+
+Not all commands are implemented. The reference used for all commands can be
+found at http://problemkaputt.de/gbatek.htm#ds3dvideo .
+"""
+
 import struct
 import euclid3 as euclid
 
 _24bit_to_16bit = lambda components: _scale_components(components, 1 / 8, int)
 
 def _command(command, parameters=None, tag=None):
+    """Wrap up a command byte, its parameters, and an optional tag in a dict.
+
+    The command byte should be the command to be passed into the geometry FIFO.
+
+    The parameters are a list of all the arguments for the specified command.
+    There is no validation as to whether the required number of arguments lines
+    up with the number of arguments provided.
+
+    The tag is a marker for use within the converter to identify the structures
+    of origin the command was derived from. This is used to keep track of which
+    matrices belong to which bones and which texture commands use what textures,
+    among other things.
+    """
     parameters = parameters if parameters else []
     if tag:
         return dict(instruction=command, params=parameters, tag=tag)
     return dict(instruction=command, params=parameters)
 
 def _pack_bits(*bit_value_pairs):
+    """Package valuse into a single integer given a description of bit fields.
+
+    The two valid formats for a bit value pair are:
+       (bit, value)
+       ((low_bit, high_bit), value)
+    The value provided is masked and shifted to fit inside the provided bit
+    range, inclusive. Multiple pairs will all be packed into a single integer in
+    the order they are listed.
+
+    Overlapping bits are not explicitly checked for; overlapped bits will not be
+    cleared before bitwise or-ing the new value on top of it.
+    """
     packed_bits = 0
     for pair in bit_value_pairs:
         key, value = pair
@@ -20,16 +51,29 @@ def _pack_bits(*bit_value_pairs):
     return packed_bits
 
 def _pack_fixed_point_matrix_componentwise(matrix):
-    # Use matrix.transposed must be used because normal iteration yields a
-    # column major result.
+    """Convert a matrix to a row vector of binary packed fixed point values.
+
+    The matrix is converted in row major order.
+    """
+    # matrix.transposed must be used because normal iteration yields a column
+    # major result.
     return [struct.pack("< i", _to_fixed_point(element))
         for element in matrix.transposed()]
 
 def _scale_components(components, constant, cast=None):
+    """Scale all elements of components with an optional cast."""
     cast = cast if cast else lambda x: x
     return [cast(component * constant) for component in components]
 
 def _texture_size_shift(size):
+    """Convert size to the format expected by TEXIMAGE_PARAM.
+
+    Texture sizes are always powers of two, and are specified to the hardware as
+    8 << N, where N is the value passed to the TEXIMAGE_PARAM command.
+    This method is used for both the S and T dimensions of a texture.
+
+    http://problemkaputt.de/gbatek.htm#ds3dtextureattributes
+    """
     shift = 0
     while 8 < size:
         size >>= 1
@@ -37,6 +81,11 @@ def _texture_size_shift(size):
     return shift
 
 def _to_fixed_point(float_value, fraction=12):
+    """Convert a floating point value to a fixed point integer.
+
+    The number specified for the fraction value is the number of fractional bits
+    for the resulting integer.
+    """
     return int(float_value * 2 ** fraction)
 
 def begin_vtxs(primitive_type):
