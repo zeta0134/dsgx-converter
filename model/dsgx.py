@@ -187,14 +187,10 @@ def generate_bounding_sphere(mesh):
         to_fixed_point(sphere[1])))
 
 def generate_mesh(model, mesh, vtx10=False):
-    gx = gc.Emitter()
-
     commands = generate_command_list(model, mesh, vtx10)
     call_list, references = generate_gl_call_list(commands)
     dsgx_chunk = generate_dsgx(mesh.name, call_list)
     bsph_chunk = generate_bounding_sphere(mesh)
-
-    log.debug("Cycles to Draw %s: %d", mesh.name, gx.cycles)
     cost_chunk = generate_cost(mesh, commands)
     return [dsgx_chunk, bsph_chunk, cost_chunk], references
 
