@@ -288,7 +288,6 @@ def generate_animations(animations):
         chunk = [generate_animation(tag_type, animations[tag_type][animation], animation) for animation in animations[tag_type]]
         chunk = filter(None, chunk)
         animation_chunks.extend(chunk)
-    print("Generated %d animation chunks." % len(animation_chunks))
     return animation_chunks
 
 def generate_animation(tag_type, animation, animation_name):
