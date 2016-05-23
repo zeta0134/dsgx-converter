@@ -283,9 +283,20 @@ def generate_textures(mesh, texture_references):
     return wrap_chunk("TXTR", struct.pack("< 32s I %ds" % len(references), name, count, references))
 
 def generate_animations(animations):
-    return [generate_animation(animations[animation], animation) for animation in animations]
+    animation_chunks = []
+    for tag_type in animations:
+        chunk = [generate_animation(tag_type, animations[tag_type][animation], animation) for animation in animations[tag_type]]
+        chunk = filter(None, chunk)
+        animation_chunks.extend(chunk)
+    print("Generated %d animation chunks." % len(animation_chunks))
+    return animation_chunks
 
-def generate_animation(animation, animation_name):
+def generate_animation(tag_type, animation, animation_name):
+    if tag_type == "bone":
+        return generate_bone_animation(animation, animation_name)
+    log.warning("Unknown tag type %s, ignoring animation data." % tag_type)
+
+def generate_bone_animation(animation, animation_name):
     name = to_dsgx_string(animation_name)
     length = animation.length
     matrices = []
@@ -305,8 +316,7 @@ def generate(model, vtx10=False):
         if "bone" in model.animations:
             chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
         chunks.append(generate_textures(mesh, references["textures"]))
-    if "bone" in model.animations:
-        chunks.append(generate_animations(model.animations["bone"]))
+    chunks.extend(generate_animations(model.animations))
     return list(flatten(chunk for chunk in chunks if chunk))
 
 class Writer:
