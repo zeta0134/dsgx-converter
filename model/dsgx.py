@@ -292,10 +292,51 @@ def generate_animations(animations):
 
 def generate_animation(tag_type, animation, animation_name):
     if tag_type == "bone":
-        return generate_bone_animation(animation, animation_name)
+        return generate_bani_chunk(animation, animation_name)
     log.warning("Unknown tag type %s, ignoring animation data." % tag_type)
 
-def generate_bone_animation(animation, animation_name):
+def generate_anim_chunk(tag_type, animation, animation_name):
+    name = to_dsgx_string(animation_name)
+    mesh_name = to_dsgx_string(animation.mesh_name if animation.mesh_name else "")
+    data_type = animation.data_type
+
+    channels = animation.channels
+    # Determine the length of a data entry by encoding one at random, then
+    # counting the number of parameters we get back. Each parameter is one
+    # word.
+    data_length = len(encode_animation_data(channels[channels.keys()[0]][0], data_type))
+    parameter_data = []
+    for frame in range(animation.length):
+        for channel_name in sorted(set(animation.channels.keys()) - {"default"}):
+            params = encode_animation_data(channels[channel_name], data_type)
+            parameter_data.extend(params)
+    parameter_data = b"".join(parameter_data)
+    return wrap_chunk("BANI", struct.pack("< 32s 32s I I %ds" % len(matrices),
+        name, mesh_name, animation.length, data_length, parameter_data))
+
+
+
+def encode_animation_matrix(matrix):
+    return gc.mtx_mult_4x4(matrix).params
+
+def encode_animation_vertex(vertex):
+    return gc.vtx_10(vertex).params
+
+def encode_animation_normal(normal):
+    return gc.normal(normal).params
+
+animation_data_encoders = {
+    "bone": encode_animation_matrix,
+    "normal": encode_animation_normal,
+    "vertex": encode_animation_vertex}
+
+def encode_animation_data(data, data_type):
+    if data_type in animation_data_encoders:
+        return animation_data_encoders[data_type](data)
+    log.warning("No encoder for %s data type in animation!" % data_type)
+    return []
+
+def generate_bani_chunk(animation, animation_name):
     name = to_dsgx_string(animation_name)
     length = animation.length
     matrices = []

@@ -209,11 +209,11 @@ class Model:
             self.smooth_shading = False
 
     class Animation:
-        def __init__(self, data_type, mesh=None):
+        def __init__(self, data_type, mesh_name=None):
             self.channels = {}
             self.length = 0 #in frames
             self.data_type = data_type
-            self.mesh = mesh
+            self.mesh_name = mesh_name
 
         def add_channel(self, channel_name, frame_values):
             log.debug("Added animation channel: %s", channel_name)
