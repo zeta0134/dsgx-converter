@@ -114,9 +114,9 @@ def generate_face_attributes(material, flags):
     return list(flatten([texture_attributes,  polygon_attributes,
         material_properties]))
 
-def generate_vertex(location, scale_factor, vtx10=False):
+def generate_vertex(location, scale_factor, vtx10=False, tag=None):
     vtx = gc.vtx_10 if vtx10 else gc.vtx_16
-    return vtx(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor)
+    return vtx(location.x * scale_factor, location.y * scale_factor, location.z * scale_factor, tag)
 
 def determine_scale_factor(box):
     largest_coordinate = max(abs(box["wx"]), abs(box["wy"]), abs(box["wz"]))
@@ -140,15 +140,15 @@ def generate_polygon_list_start(points_per_polygon):
 def generate_face(material, vertices, face, scale_factor, vtx10=False):
     commands = [gc.normal(*face.face_normal)
         if not face.smooth_shading else None]
-    for i, vertex in enumerate(face.vertices):
+    for i, vertex_index in enumerate(face.vertices):
         if material.texture:
             commands.append(gc.texcoord(
                 face.uvlist[i][0] * material.texture_size[0],
                 (1.0 - face.uvlist[i][1]) * material.texture_size[1]))
         if face.smooth_shading:
-            commands.append(gc.normal(*face.vertex_normals[i]))
-        commands.append(generate_vertex(vertices[vertex].location,
-            scale_factor, vtx10))
+            commands.append(gc.normal(*face.vertex_normals[i], tag=("normal", vertex_index)))
+        commands.append(generate_vertex(vertices[vertex_index].location,
+            scale_factor, vtx10, tag=("vertex", vertex_index)))
     return list(compact(flatten(commands)))
 
 def generate_faces(materials, mesh, scale_factor, vtx10=False):
@@ -278,19 +278,22 @@ def generate_bones(animations, mesh_name, bone_references):
     return wrap_chunk("BONE", struct.pack("< 32s I %ds" % len(bones), name, bone_count, bones))
 
 def generate_animation_references(animations, mesh_name, tag_type, references):
-    if not animation:
+    if not animations:
         return
     tag = to_dsgx_string(tag_type)
     name = to_dsgx_string(mesh_name)
     some_animation = animations[next(iter(animations.keys()))]
     unique_reference_count = len(some_animation.channels.keys())
     unique_references = []
-    for unique_reference in sorted(set(animation.channels.keys())):
+    print("AREF: ", mesh_name, ", ", tag_type)
+    print("-- References: ", unique_reference_count)
+    for unique_reference in sorted(set(some_animation.channels.keys())):
         reference_offsets = references.get((tag_type, unique_reference), [])
         reference_name = to_dsgx_string(str(unique_reference))
-        unique_references.append("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
-    print("AREF: %s, %s", mesh_name, tag_type)
-    return wrap_chunk("AREF", struct.pack("< 32s I %ds" % len(unique_references), tag, name, bone_count, bones))
+        unique_references.append(struct.pack("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
+        print("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
+    unique_references = b"".join(unique_references)
+    return wrap_chunk("AREF", struct.pack("< 32s 32s I %ds" % len(unique_references), tag, name, unique_reference_count, unique_references))
 
 
 def generate_textures(mesh, texture_references):
@@ -374,9 +377,9 @@ def generate(model, vtx10=False):
         if "bone" in model.animations:
             chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
         if "vertex" in model.animations:
-            chunks.append(generate_aref(model.animations["vertex"], mesh.name, "vertex", referecnes["vertices"])
+            chunks.append(generate_animation_references(model.animations["vertex"], mesh.name, "vertex", references["vertices"]))
         if "normal" in model.animations:
-            chunks.append(generate_aref(model.animations["normal"], mesh.name, "normal", referecnes["normals"])
+            chunks.append(generate_animation_references(model.animations["normal"], mesh.name, "normal", references["normals"]))
         chunks.append(generate_textures(mesh, references["textures"]))
     chunks.extend(generate_animations(model.animations))
     return list(flatten(chunk for chunk in chunks if chunk))

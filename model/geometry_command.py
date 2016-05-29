@@ -148,7 +148,7 @@ def mtx_scale(sx, sy, sz):
     return _command(0x1B, [struct.pack("< i", _to_fixed_point(axis))
         for axis in (sx, sy, sz)])
 
-def normal(x, y, z):
+def normal(x, y, z, tag=None):
     """Calculate the vertex color based on lighting.
 
     http://problemkaputt.de/gbatek.htm#ds3dpolygonlightparameters
@@ -162,7 +162,7 @@ def normal(x, y, z):
     return _command(0x21, [struct.pack("< I", _pack_bits(
         ((0, 9), to_fixed_9(x)),
         ((10, 19), to_fixed_9(y)),
-        ((20, 29), to_fixed_9(z))))])
+        ((20, 29), to_fixed_9(z))))], tag=tag)
 
 class PolygonAttr:
     class DepthTest:
@@ -314,7 +314,7 @@ def texpllt_base(offset, texture_format):
     return _command(0x2B, [struct.pack("< I", _pack_bits(
         ((0, 12), offset >> shift)))])
 
-def vtx_10(x, y, z):
+def vtx_10(x, y, z, tag=None):
     """Specify a vertex with 1.3.6 fixed point components.
 
     This is similar to vtx_16, but is less accurate in exchange for requiring
@@ -331,9 +331,9 @@ def vtx_10(x, y, z):
         struct.pack("< I", _pack_bits(
             ((0, 9), to_fixed_6(x)),
             ((10, 19), to_fixed_6(y)),
-            ((20, 29), to_fixed_6(z))))])
+            ((20, 29), to_fixed_6(z))))], tag=tag)
 
-def vtx_16(x, y, z):
+def vtx_16(x, y, z, tag=None):
     """Specify a vertex with 1.3.12 fixed point components.
 
     This vertex format requires two argument words, but has higher precision
@@ -349,4 +349,4 @@ def vtx_16(x, y, z):
         struct.pack("< I", _pack_bits(
             ((0, 15), to_fixed_12(x)),
             ((16, 31), to_fixed_12(y)))), struct.pack("< I", _pack_bits(
-            ((0, 15), to_fixed_12(z))))])
+            ((0, 15), to_fixed_12(z))))], tag=tag)
