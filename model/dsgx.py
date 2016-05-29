@@ -257,7 +257,11 @@ def generate_gl_call_list(commands):
         command_bytes += b"".join(command["params"])
         call_list.append(command_bytes)
     call_list = b"".join(call_list)
-    return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list), dict(bones=generate_references(commands, 0x18), textures=generate_references(commands, 0x2A))
+    return struct.pack("< I %ds" % len(call_list), int(len(call_list) / 4), call_list), dict(
+        bones=generate_references(commands, 0x18),
+        textures=generate_references(commands, 0x2A),
+        vertices=generate_references(commands, 0x24),
+        normals=generate_references(commands, 0x21))
 
 def generate_bones(animations, mesh_name, bone_references):
     if not animations:
@@ -272,6 +276,22 @@ def generate_bones(animations, mesh_name, bone_references):
         bones.append(struct.pack("< 32s I %dI" % len(bone_offsets), bone_name, len(bone_offsets), *bone_offsets))
     bones = b"".join(bones)
     return wrap_chunk("BONE", struct.pack("< 32s I %ds" % len(bones), name, bone_count, bones))
+
+def generate_animation_references(animations, mesh_name, tag_type, references):
+    if not animation:
+        return
+    tag = to_dsgx_string(tag_type)
+    name = to_dsgx_string(mesh_name)
+    some_animation = animations[next(iter(animations.keys()))]
+    unique_reference_count = len(some_animation.channels.keys())
+    unique_references = []
+    for unique_reference in sorted(set(animation.channels.keys())):
+        reference_offsets = references.get((tag_type, unique_reference), [])
+        reference_name = to_dsgx_string(str(unique_reference))
+        unique_references.append("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
+    print("AREF: %s, %s", mesh_name, tag_type)
+    return wrap_chunk("AREF", struct.pack("< 32s I %ds" % len(unique_references), tag, name, bone_count, bones))
+
 
 def generate_textures(mesh, texture_references):
     name = to_dsgx_string(mesh.name)
@@ -314,8 +334,6 @@ def generate_anim_chunk(tag_type, animation, animation_name):
     return wrap_chunk("BANI", struct.pack("< 32s 32s I I %ds" % len(matrices),
         name, mesh_name, animation.length, data_length, parameter_data))
 
-
-
 def encode_animation_matrix(matrix):
     return gc.mtx_mult_4x4(matrix).params
 
@@ -355,6 +373,10 @@ def generate(model, vtx10=False):
         chunks.append(mesh_chunks)
         if "bone" in model.animations:
             chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
+        if "vertex" in model.animations:
+            chunks.append(generate_aref(model.animations["vertex"], mesh.name, "vertex", referecnes["vertices"])
+        if "normal" in model.animations:
+            chunks.append(generate_aref(model.animations["normal"], mesh.name, "normal", referecnes["normals"])
         chunks.append(generate_textures(mesh, references["textures"]))
     chunks.extend(generate_animations(model.animations))
     return list(flatten(chunk for chunk in chunks if chunk))
