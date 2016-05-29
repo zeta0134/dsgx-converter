@@ -285,13 +285,10 @@ def generate_animation_references(animations, mesh_name, tag_type, references):
     some_animation = animations[next(iter(animations.keys()))]
     unique_reference_count = len(some_animation.channels.keys())
     unique_references = []
-    print("AREF: ", mesh_name, ", ", tag_type)
-    print("-- References: ", unique_reference_count)
     for unique_reference in sorted(set(some_animation.channels.keys())):
         reference_offsets = references.get((tag_type, unique_reference), [])
         reference_name = to_dsgx_string(str(unique_reference))
         unique_references.append(struct.pack("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
-        print("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
     unique_references = b"".join(unique_references)
     return wrap_chunk("AREF", struct.pack("< 32s 32s I %ds" % len(unique_references), tag, name, unique_reference_count, unique_references))
 
@@ -313,38 +310,14 @@ def generate_animations(animations):
         animation_chunks.extend(chunk)
     return animation_chunks
 
-def generate_animation(tag_type, animation, animation_name):
-    if tag_type == "bone":
-        return generate_bani_chunk(animation, animation_name)
-    log.warning("Unknown tag type %s, ignoring animation data." % tag_type)
-
-def generate_anim_chunk(tag_type, animation, animation_name):
-    name = to_dsgx_string(animation_name)
-    mesh_name = to_dsgx_string(animation.mesh_name if animation.mesh_name else "")
-    data_type = animation.data_type
-
-    channels = animation.channels
-    # Determine the length of a data entry by encoding one at random, then
-    # counting the number of parameters we get back. Each parameter is one
-    # word.
-    data_length = len(encode_animation_data(channels[channels.keys()[0]][0], data_type))
-    parameter_data = []
-    for frame in range(animation.length):
-        for channel_name in sorted(set(animation.channels.keys()) - {"default"}):
-            params = encode_animation_data(channels[channel_name], data_type)
-            parameter_data.extend(params)
-    parameter_data = b"".join(parameter_data)
-    return wrap_chunk("BANI", struct.pack("< 32s 32s I I %ds" % len(matrices),
-        name, mesh_name, animation.length, data_length, parameter_data))
-
 def encode_animation_matrix(matrix):
-    return gc.mtx_mult_4x4(matrix).params
+    return gc.mtx_mult_4x4(matrix)["params"]
 
 def encode_animation_vertex(vertex):
-    return gc.vtx_10(vertex).params
+    return gc.vtx_10(*vertex)["params"]
 
 def encode_animation_normal(normal):
-    return gc.normal(normal).params
+    return gc.normal(*normal)["params"]
 
 animation_data_encoders = {
     "bone": encode_animation_matrix,
@@ -356,6 +329,33 @@ def encode_animation_data(data, data_type):
         return animation_data_encoders[data_type](data)
     log.warning("No encoder for %s data type in animation!" % data_type)
     return []
+
+def generate_animation(tag_type, animation, animation_name):
+    if tag_type == "bone":
+        return generate_bani_chunk(animation, animation_name)
+    if tag_type in animation_data_encoders:
+        return generate_anim_chunk(tag_type, animation, animation_name)
+    log.warning("Unknown tag type %s, ignoring animation data." % tag_type)
+
+def generate_anim_chunk(tag_type, animation, animation_name):
+    name = to_dsgx_string(animation_name)
+    mesh_name = to_dsgx_string(animation.mesh_name if animation.mesh_name else "")
+    data_type = animation.data_type
+
+    channels = animation.channels
+    # Determine the length of a data entry by encoding one at random, then
+    # counting the number of parameters we get back. Each parameter is one
+    # word.
+    data_length = len(encode_animation_data(channels[list(channels.keys())[0]][0], data_type))
+    parameter_data = []
+    for frame in range(animation.length):
+        for channel_name in sorted(set(animation.channels.keys()) - {"default"}):
+            params = encode_animation_data(channels[channel_name][frame], data_type)
+            parameter_data.extend(params)
+    parameter_data = b"".join(parameter_data)
+    print("Created ANIM ", animation_name, " for ", tag_type, " with length ", len(parameter_data))
+    return wrap_chunk("ANIM", struct.pack("< 32s 32s I I %ds" % len(parameter_data),
+        name, mesh_name, animation.length, data_length, parameter_data))
 
 def generate_bani_chunk(animation, animation_name):
     name = to_dsgx_string(animation_name)
