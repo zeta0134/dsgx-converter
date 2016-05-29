@@ -284,16 +284,17 @@ def generate_animation_references(animations, mesh_name, tag_type, references):
     tag = to_dsgx_string(tag_type)
     name = to_dsgx_string(mesh_name)
     # some_animation = animations[next(iter(animations.keys()))]
-    some_animation = animations[0]
+    mesh_animations = filter(lambda animation: animation.mesh == mesh_name, animations)
+    some_animation = next(mesh_animations)
     unique_reference_count = len(some_animation.channels.keys())
     unique_references = []
-    log.debug("AREF: ", mesh_name, ", ", tag_type)
-    log.debug("-- References: ", unique_reference_count)
+    print("AREF: ", mesh_name, ", ", tag_type)
+    print("-- References: ", unique_reference_count)
     for unique_reference in sorted(set(some_animation.channels.keys())):
         reference_offsets = references.get((tag_type, unique_reference), [])
         reference_name = to_dsgx_string(str(unique_reference))
         unique_references.append(struct.pack("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
-        log.debug("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
+        print("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
     unique_references = b"".join(unique_references)
     return wrap_chunk("AREF", struct.pack("< 32s 32s I %ds" % len(unique_references), tag, name, unique_reference_count, unique_references))
 
@@ -325,7 +326,7 @@ def encode_animation_normal(normal):
     return gc.normal(*normal)["params"]
 
 animation_data_encoders = {
-    "bone": encode_animation_matrix,
+    # "bone": encode_animation_matrix,
     "normal": encode_animation_normal,
     "vertex": encode_animation_vertex}
 
