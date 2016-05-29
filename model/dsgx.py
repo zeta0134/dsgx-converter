@@ -288,13 +288,13 @@ def generate_animation_references(animations, mesh_name, tag_type, references):
     some_animation = next(mesh_animations)
     unique_reference_count = len(some_animation.channels.keys())
     unique_references = []
-    print("AREF: ", mesh_name, ", ", tag_type)
-    print("-- References: ", unique_reference_count)
+    log.debug("AREF: ", mesh_name, ", ", tag_type)
+    log.debug("-- References: ", unique_reference_count)
     for unique_reference in sorted(set(some_animation.channels.keys())):
         reference_offsets = references.get((tag_type, unique_reference), [])
         reference_name = to_dsgx_string(str(unique_reference))
         unique_references.append(struct.pack("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
-        # print("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
+        log.debug("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
     unique_references = b"".join(unique_references)
     return wrap_chunk("AREF", struct.pack("< 32s 32s I %ds" % len(unique_references), tag, name, unique_reference_count, unique_references))
 
@@ -364,7 +364,7 @@ def generate_anim_chunk(tag_type, animation):
             params = encode_animation_data(channels[channel_name][frame], data_type)
             parameter_data.extend(params)
     parameter_data = b"".join(parameter_data)
-    print("Created ANIM ", animation.name, " for ", animation.mesh_name, ":", tag_type, " with length ", len(parameter_data))
+    log.debug("Created ANIM ", animation.name, " for ", animation.mesh_name, ":", tag_type, " with length ", len(parameter_data))
     return wrap_chunk("ANIM", struct.pack("< 32s 32s 32s I I %ds" % len(parameter_data),
         name, data_type_str, mesh_name, animation.length, data_length, parameter_data))
 
