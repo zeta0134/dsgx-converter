@@ -284,7 +284,7 @@ def generate_animation_references(animations, mesh_name, tag_type, references):
     tag = to_dsgx_string(tag_type)
     name = to_dsgx_string(mesh_name)
     # some_animation = animations[next(iter(animations.keys()))]
-    mesh_animations = filter(lambda animation: animation.mesh == mesh_name, animations)
+    mesh_animations = filter(lambda animation: animation.mesh_name == mesh_name or animation.mesh_name == None, animations)
     some_animation = next(mesh_animations)
     unique_reference_count = len(some_animation.channels.keys())
     unique_references = []
@@ -294,7 +294,7 @@ def generate_animation_references(animations, mesh_name, tag_type, references):
         reference_offsets = references.get((tag_type, unique_reference), [])
         reference_name = to_dsgx_string(str(unique_reference))
         unique_references.append(struct.pack("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
-        print("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
+        # print("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
     unique_references = b"".join(unique_references)
     return wrap_chunk("AREF", struct.pack("< 32s 32s I %ds" % len(unique_references), tag, name, unique_reference_count, unique_references))
 
@@ -326,7 +326,7 @@ def encode_animation_normal(normal):
     return gc.normal(*normal)["params"]
 
 animation_data_encoders = {
-    # "bone": encode_animation_matrix,
+    "bone": encode_animation_matrix,
     "normal": encode_animation_normal,
     "vertex": encode_animation_vertex}
 
@@ -337,11 +337,14 @@ def encode_animation_data(data, data_type):
     return []
 
 def generate_animation(tag_type, animation, animation_mode):
-    if tag_type == "bone" and animation_mode == "bone":
-        return generate_bani_chunk(animation)
-    if animation_mode == "vertex":
-        if tag_type in animation_data_encoders:
+    if tag_type == "bone":
+        if animation_mode == "bone":
+            # return generate_bani_chunk(animation)
             return generate_anim_chunk(tag_type, animation)
+    elif tag_type == "vertex" or tag_type == "normal":
+        if animation_mode == "vertex":
+            return generate_anim_chunk(tag_type, animation)
+    elif tag_type in animation_data_encoders:
         log.warning("Unknown tag type %s, ignoring animation data." % tag_type)
 
 def generate_anim_chunk(tag_type, animation):
@@ -361,7 +364,7 @@ def generate_anim_chunk(tag_type, animation):
             params = encode_animation_data(channels[channel_name][frame], data_type)
             parameter_data.extend(params)
     parameter_data = b"".join(parameter_data)
-    log.debug("Created ANIM ", animation.name, " for ", animation.mesh_name, ":", tag_type, " with length ", len(parameter_data))
+    print("Created ANIM ", animation.name, " for ", animation.mesh_name, ":", tag_type, " with length ", len(parameter_data))
     return wrap_chunk("ANIM", struct.pack("< 32s 32s 32s I I %ds" % len(parameter_data),
         name, data_type_str, mesh_name, animation.length, data_length, parameter_data))
 
@@ -382,13 +385,16 @@ def generate(model, vtx10=False, animation_mode="bone"):
         mesh = model.meshes[mesh_name]
         mesh_chunks, references = generate_mesh(model, mesh, vtx10)
         chunks.append(mesh_chunks)
-        if "bone" in model.animations and animation_mode == "bone":
-            chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
+        # if "bone" in model.animations and animation_mode == "bone":
+        #     chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
         if animation_mode == "vertex":
             if "vertex" in model.animations:
                 chunks.append(generate_animation_references(model.animations["vertex"], mesh.name, "vertex", references["vertices"]))
             if "normal" in model.animations:
                 chunks.append(generate_animation_references(model.animations["normal"], mesh.name, "normal", references["normals"]))
+        if animation_mode == "bone":
+            if "bone" in model.animations:
+                chunks.append(generate_animation_references(model.animations["bone"], mesh.name, "bone", references["bones"]))
         chunks.append(generate_textures(mesh, references["textures"]))
     chunks.extend(generate_animations(model.animations, animation_mode))
     return list(flatten(chunk for chunk in chunks if chunk))
