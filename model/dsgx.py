@@ -347,6 +347,7 @@ def generate_anim_chunk(tag_type, animation):
     name = to_dsgx_string(animation.name)
     mesh_name = to_dsgx_string(animation.mesh_name if animation.mesh_name else "")
     data_type = animation.data_type
+    data_type_str = to_dsgx_string(data_type)
 
     channels = animation.channels
     # Determine the length of a data entry by encoding one at random, then
@@ -360,8 +361,8 @@ def generate_anim_chunk(tag_type, animation):
             parameter_data.extend(params)
     parameter_data = b"".join(parameter_data)
     log.debug("Created ANIM ", animation.name, " for ", animation.mesh_name, ":", tag_type, " with length ", len(parameter_data))
-    return wrap_chunk("ANIM", struct.pack("< 32s 32s I I %ds" % len(parameter_data),
-        name, mesh_name, animation.length, data_length, parameter_data))
+    return wrap_chunk("ANIM", struct.pack("< 32s 32s 32s I I %ds" % len(parameter_data),
+        name, data_type_str, mesh_name, animation.length, data_length, parameter_data))
 
 def generate_bani_chunk(animation):
     name = to_dsgx_string(animation.name)
