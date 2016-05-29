@@ -267,7 +267,8 @@ def generate_bones(animations, mesh_name, bone_references):
     if not animations:
         return
     name = to_dsgx_string(mesh_name)
-    animation = animations[next(iter(animations.keys()))]
+    # animation = animations[next(iter(animations.keys()))]
+    animation = animations[0]
     bone_count = len(animation.channels.keys())
     bones = []
     for bone_name in sorted(set(animation.channels.keys()) - {"default"}):
@@ -282,13 +283,17 @@ def generate_animation_references(animations, mesh_name, tag_type, references):
         return
     tag = to_dsgx_string(tag_type)
     name = to_dsgx_string(mesh_name)
-    some_animation = animations[next(iter(animations.keys()))]
+    # some_animation = animations[next(iter(animations.keys()))]
+    some_animation = animations[0]
     unique_reference_count = len(some_animation.channels.keys())
     unique_references = []
+    log.debug("AREF: ", mesh_name, ", ", tag_type)
+    log.debug("-- References: ", unique_reference_count)
     for unique_reference in sorted(set(some_animation.channels.keys())):
         reference_offsets = references.get((tag_type, unique_reference), [])
         reference_name = to_dsgx_string(str(unique_reference))
         unique_references.append(struct.pack("< 32s I %dI" % len(reference_offsets), reference_name, len(reference_offsets), *reference_offsets))
+        log.debug("-- Reference: ", str(unique_reference), ": ", len(reference_offsets))
     unique_references = b"".join(unique_references)
     return wrap_chunk("AREF", struct.pack("< 32s 32s I %ds" % len(unique_references), tag, name, unique_reference_count, unique_references))
 
@@ -302,10 +307,10 @@ def generate_textures(mesh, texture_references):
         for texture in sorted(texture_references))
     return wrap_chunk("TXTR", struct.pack("< 32s I %ds" % len(references), name, count, references))
 
-def generate_animations(animations):
+def generate_animations(animations, animation_mode):
     animation_chunks = []
     for tag_type in animations:
-        chunk = [generate_animation(tag_type, animations[tag_type][animation], animation) for animation in animations[tag_type]]
+        chunk = [generate_animation(tag_type, animation, animation_mode) for animation in animations[tag_type]]
         chunk = filter(None, chunk)
         animation_chunks.extend(chunk)
     return animation_chunks
@@ -330,15 +335,16 @@ def encode_animation_data(data, data_type):
     log.warning("No encoder for %s data type in animation!" % data_type)
     return []
 
-def generate_animation(tag_type, animation, animation_name):
-    if tag_type == "bone":
-        return generate_bani_chunk(animation, animation_name)
-    if tag_type in animation_data_encoders:
-        return generate_anim_chunk(tag_type, animation, animation_name)
-    log.warning("Unknown tag type %s, ignoring animation data." % tag_type)
+def generate_animation(tag_type, animation, animation_mode):
+    if tag_type == "bone" and animation_mode == "bone":
+        return generate_bani_chunk(animation)
+    if animation_mode == "vertex":
+        if tag_type in animation_data_encoders:
+            return generate_anim_chunk(tag_type, animation)
+        log.warning("Unknown tag type %s, ignoring animation data." % tag_type)
 
-def generate_anim_chunk(tag_type, animation, animation_name):
-    name = to_dsgx_string(animation_name)
+def generate_anim_chunk(tag_type, animation):
+    name = to_dsgx_string(animation.name)
     mesh_name = to_dsgx_string(animation.mesh_name if animation.mesh_name else "")
     data_type = animation.data_type
 
@@ -353,12 +359,12 @@ def generate_anim_chunk(tag_type, animation, animation_name):
             params = encode_animation_data(channels[channel_name][frame], data_type)
             parameter_data.extend(params)
     parameter_data = b"".join(parameter_data)
-    print("Created ANIM ", animation_name, " for ", tag_type, " with length ", len(parameter_data))
+    log.debug("Created ANIM ", animation.name, " for ", animation.mesh_name, ":", tag_type, " with length ", len(parameter_data))
     return wrap_chunk("ANIM", struct.pack("< 32s 32s I I %ds" % len(parameter_data),
         name, mesh_name, animation.length, data_length, parameter_data))
 
-def generate_bani_chunk(animation, animation_name):
-    name = to_dsgx_string(animation_name)
+def generate_bani_chunk(animation):
+    name = to_dsgx_string(animation.name)
     length = animation.length
     matrices = []
     for frame in range(animation.length):
@@ -368,24 +374,25 @@ def generate_bani_chunk(animation, animation_name):
     matrices = b"".join(matrices)
     return wrap_chunk("BANI", struct.pack("< 32s I %ds" % len(matrices), name, length, matrices))
 
-def generate(model, vtx10=False):
+def generate(model, vtx10=False, animation_mode="bone"):
     chunks = []
     for mesh_name in model.meshes:
         mesh = model.meshes[mesh_name]
         mesh_chunks, references = generate_mesh(model, mesh, vtx10)
         chunks.append(mesh_chunks)
-        if "bone" in model.animations:
+        if "bone" in model.animations and animation_mode == "bone":
             chunks.append(generate_bones(model.animations["bone"], mesh.name, references["bones"]))
-        if "vertex" in model.animations:
-            chunks.append(generate_animation_references(model.animations["vertex"], mesh.name, "vertex", references["vertices"]))
-        if "normal" in model.animations:
-            chunks.append(generate_animation_references(model.animations["normal"], mesh.name, "normal", references["normals"]))
+        if animation_mode == "vertex":
+            if "vertex" in model.animations:
+                chunks.append(generate_animation_references(model.animations["vertex"], mesh.name, "vertex", references["vertices"]))
+            if "normal" in model.animations:
+                chunks.append(generate_animation_references(model.animations["normal"], mesh.name, "normal", references["normals"]))
         chunks.append(generate_textures(mesh, references["textures"]))
-    chunks.extend(generate_animations(model.animations))
+    chunks.extend(generate_animations(model.animations, animation_mode))
     return list(flatten(chunk for chunk in chunks if chunk))
 
 class Writer:
-    def write(self, filename, model, vtx10=False):
-        chunks = generate(model, vtx10)
+    def write(self, filename, model, vtx10=False, animation_mode="bone"):
+        chunks = generate(model, vtx10, animation_mode)
         with open(filename, "wb") as fp:
             fp.write(b"".join(chunks))
